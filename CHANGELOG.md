@@ -34,6 +34,14 @@ Recorded on a customer's Windows 10 machine on 17/10/2026, from install through 
 - **Rules meant for every chat go to AGENTS.md** (MEMORY.md is not loaded in groups, cron jobs or
   subagents).
 - **Installing a skill no longer restarts the bot** - OpenClaw picks up new skills by itself.
+- **Python skills run on Windows.** Skills usually say `python3 scripts/...`, but on Windows `python3` is the
+  Microsoft Store alias ("Python was not found"). The bot is told to call `python`/`py`, install libraries
+  with `python -m pip`, and report a machine without Python. Existing bots get this on update.
+- **Dreaming works again on Windows.** Each bot's workspace is now written with the real state folder
+  (`C:\Users\<name>\.openclaw\workspace-…`) instead of the project link (`<project>\.openclaw\…`).
+  memory-core refuses to write through a link, so the nightly dreaming run failed while its cron job still
+  showed "ok". A path fix made during service install was also being undone on every gateway start.
+  Existing bots are fixed on the next start.
 - **Reminder skill uses the 2026.9 tool name** (`automations`) and explains that it is owner-only.
 - **One bot's state stays in one place.** A relative `agentDir` put the auth database next to the
   launcher's working folder; native bots now use OpenClaw's default.

@@ -31,6 +31,14 @@ Ghi nhận trên máy Windows 10 của khách ngày 17/10/2026, từ lúc cài t
   chỉ ghi lại khi trường tạo ra chúng thay đổi, và có bản sao lưu.
 - **Quy tắc áp dụng mọi nơi được ghi vào AGENTS.md** (MEMORY.md không được nạp trong group, cron, subagent).
 - **Cài skill không còn khởi động lại bot** - OpenClaw tự nạp skill mới.
+- **Skill viết bằng Python chạy được trên Windows.** Skill thường ghi `python3 scripts/...`, nhưng trên Windows
+  `python3` là lối tắt Microsoft Store ("Python was not found"). Bot được dặn gọi `python`/`py`, cài thư viện
+  bằng `python -m pip`, và báo lại khi máy chưa có Python. Bot cũ được bổ sung khi cập nhật.
+- **Dreaming (bot tự ôn trí nhớ ban đêm) chạy lại được trên Windows.** Workspace của bot nay ghi bằng thư mục
+  thật (`C:\Users\<tên>\.openclaw\workspace-…`) thay cho đường liên kết của project (`<project>\.openclaw\…`).
+  memory-core không chịu ghi qua đường liên kết, nên dreaming hỏng mỗi đêm trong khi lịch vẫn báo "ok". Đường
+  đã được sửa lúc cài service cũng bị ghi ngược lại mỗi lần gateway khởi động. Bot cũ tự được sửa ở lần khởi
+  động sau.
 - **Skill nhắc hẹn dùng đúng tên công cụ 2026.9** (`automations`) và nói rõ chỉ chủ bot dùng được.
 - **Dữ liệu của một bot nằm một chỗ.** `agentDir` tương đối làm cơ sở dữ liệu xác thực rơi vào thư mục
   làm việc của launcher; bot chạy trực tiếp nay dùng vị trí mặc định của OpenClaw.

@@ -13,7 +13,7 @@ function loadSharedModule(modulePath, globalName) {
   if (loaded && Object.keys(loaded).length > 0) return loaded;
   return globalThis[globalName] || loaded || {};
 }
-const { buildWorkspaceFileMap, buildCronjobSkillMd, buildInfographicGeneratorSkillMd, buildInfographicGeneratorJs, buildFileSendSteps, buildSecurityRules, buildWindowsExecNotes, upgradeCronjobSkillMd } = loadSharedModule('../setup/shared/workspace-gen.js', '__openclawWorkspace');
+const { buildWorkspaceFileMap, buildCronjobSkillMd, buildInfographicGeneratorSkillMd, buildInfographicGeneratorJs, buildFileSendSteps, buildSecurityRules, buildWindowsExecNotes, buildWindowsExecNotesBase, buildWindowsPythonNote, upgradeCronjobSkillMd } = loadSharedModule('../setup/shared/workspace-gen.js', '__openclawWorkspace');
 const { buildOpenclawJson, buildEnvFileContent, buildExecApprovalsJson, buildZaloConnectChannelConfig } = loadSharedModule('../setup/shared/bot-config-gen.js', '__openclawBotConfig');
 const { buildDockerArtifacts, contextDefaultsScript } = loadSharedModule('../setup/shared/docker-gen.js', '__openclawDockerGen');
 const { patchZaloConnectSource } = loadSharedModule('../setup/shared/zalo-connect-patch.js', '__openclawZaloConnectPatch');
@@ -1412,6 +1412,13 @@ function nativeAgentsDocFixups(text, root, workspaceDir) {
       if (at >= 0) { out = out.slice(0, at) + buildWindowsExecNotes(isVi) + out.slice(at); break; }
     }
   }
+  // Bots that got the 🪟 block before the Python line existed: append it to the untouched block.
+  if (process.platform === 'win32' && typeof buildWindowsExecNotesBase === 'function' && !/\n- Python: /.test(out)) {
+    for (const isVi of [true, false]) {
+      const base = buildWindowsExecNotesBase(isVi);
+      if (out.includes(base)) { out = out.split(base).join(base + buildWindowsPythonNote(isVi)); break; }
+    }
+  }
   return out;
 }
 
@@ -1434,7 +1441,11 @@ async function migrateNativePaths(projectDir) {
   //   "workspace-x"            → setup's own resolver looks in projectDir/workspace-x
   // Only an ABSOLUTE host path is correct for both - the direct parallel of Docker's absolute
   // "/home/node/project/.openclaw/workspace-x". Normalise every agent's workspace to it.
-  const wsRoot = join(projectDir, '.openclaw');
+  // The REAL state dir, not <project>/.openclaw: on >=2026.8 that is a link to ~/.openclaw, and
+  // writing the link path here undid repointStatePaths on every gateway start. memory-core refuses
+  // to write through a linked directory, so dreaming then failed every night while its cron still
+  // reported "ok" (win C:\bot 18/10/2026).
+  const wsRoot = nativeStateRoot(projectDir);
   let changed = false;
   const fix = (obj) => {
     if (!obj || typeof obj.workspace !== 'string' || !obj.workspace) return;
@@ -2522,7 +2533,7 @@ async function createBotInProject(projectDir, body = {}, runtime = {}) {
     // Relative workspace path - resolves against the process cwd (project root) in docker. Native
     // writes the final host path straight away (= what migrateNativePaths would produce), so a
     // hot-reloading gateway never sees an interim value. See buildOpenclawJson() for the rationale.
-    workspace: isNativeProject(projectDir) ? join(projectDir, '.openclaw', workspaceDir) : `.openclaw/${workspaceDir}`,
+    workspace: isNativeProject(projectDir) ? join(nativeStateRoot(projectDir), workspaceDir) : `.openclaw/${workspaceDir}`,
     // Native: no agentDir - a relative one is resolved against each process's cwd (see
     // migrateNativePaths), which split one bot's state across two directories.
     ...(isNativeProject(projectDir) ? {} : { agentDir: `agents/${agentId}/agent` }),
@@ -2654,7 +2665,7 @@ async function updateBotInProject(projectDir, agentId, body = {}, runtime = {}) 
   if (isNativeProject(projectDir)) {
     // Final host path right away (= what migrateNativePaths yields), never the container path -
     // and no relative agentDir (see migrateNativePaths).
-    agent.workspace = join(projectDir, '.openclaw', workspaceDir);
+    agent.workspace = join(nativeStateRoot(projectDir), workspaceDir);
   } else {
     agent.workspace = `/home/node/project/.openclaw/${workspaceDir}`;
     agent.agentDir = `agents/${agentId}/agent`;

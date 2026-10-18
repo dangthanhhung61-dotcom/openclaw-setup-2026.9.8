@@ -723,8 +723,19 @@ Ngoài gửi text, tool \`${zaloDeliveryChannel}\` có ~149 action. Gọi bằng
   // ("npx.ps1 cannot be loaded because running scripts is disabled"), multi-line `node -e`/`powershell
   // -Command` strings broke on quoting, and installs that outlived the 10 s exec window were started
   // again instead of polled - four parallel installs of one skill then failed with "being changed by
-  // another OpenClaw lifecycle" and EPERM.
+  // another OpenClaw lifecycle" and EPERM. Skills then ran `python3 scripts/...`, which on Windows is the
+  // Microsoft Store alias ("Python was not found") even with python.org Python installed as `python`/`py`.
+  function buildWindowsPythonNote(isVi = true) {
+    return isVi
+      ? `\n- Python: gọi \`python\` (hoặc \`py\`), KHÔNG gọi \`python3\` - trên Windows \`python3\` thường là lối tắt Microsoft Store, chỉ báo "Python was not found". Skill nào ghi \`python3 scripts/...\` thì chạy \`python scripts/...\`. Thiếu thư viện: \`python -m pip install <tên>\` (gói nặng thì hỏi trước). Nếu cả \`python\` cũng báo vậy thì máy chưa cài Python - báo lại, đừng tự cài.`
+      : `\n- Python: call \`python\` (or \`py\`), NOT \`python3\` - on Windows \`python3\` is usually the Microsoft Store alias and only prints "Python was not found". A skill that says \`python3 scripts/...\` runs as \`python scripts/...\`. Missing library: \`python -m pip install <name>\` (ask first for heavy packages). If \`python\` says the same, Python isn't installed - report it, don't install it yourself.`;
+  }
+
   function buildWindowsExecNotes(isVi = true) {
+    return buildWindowsExecNotesBase(isVi) + buildWindowsPythonNote(isVi);
+  }
+
+  function buildWindowsExecNotesBase(isVi = true) {
     return isVi
       ? `\n\n## 🪟 Chạy lệnh trên máy Windows này\n\`exec\` chạy bằng **Windows PowerShell 5.1**:\n- Gõ thẳng lệnh PowerShell. KHÔNG bọc \`powershell -Command "..."\`/\`cmd /c\`; KHÔNG dùng cú pháp bash (\`&&\`, \`mkdir -p\`, \`cp\`, \`curl -X ... | jq\`).\n- Lệnh npm toàn cục phải gọi kèm \`.cmd\`: \`openclaw.cmd\`, \`npx.cmd\`, \`npm.cmd\`. Máy chặn script \`.ps1\`, nên \`openclaw\`/\`npx\` trần báo "running scripts is disabled".\n- Code nhiều dòng: ghi ra file (tool \`write\`) rồi chạy (\`node ten-file.js\`), đừng nhồi vào \`node -e "..."\`.\n- Lệnh chạy lâu bị đẩy ra nền ("Command still running … session …"): theo dõi bằng tool \`process\` (poll/log) đúng session đó. KHÔNG chạy lại lệnh, nhất là cài skill/plugin: hai lần cài cùng lúc khoá nhau ("being changed by another OpenClaw lifecycle") và lỗi \`EPERM\`.\n- Cài skill: \`openclaw.cmd skills install <slug>\` (đi qua kiểm tra bảo mật của OpenClaw), chạy MỘT lần.`
       : `\n\n## 🪟 Running commands on this Windows host\n\`exec\` runs **Windows PowerShell 5.1**:\n- Type PowerShell directly. Do NOT wrap in \`powershell -Command "..."\`/\`cmd /c\`; no bash syntax (\`&&\`, \`mkdir -p\`, \`cp\`, \`curl -X ... | jq\`).\n- Call global npm commands with \`.cmd\`: \`openclaw.cmd\`, \`npx.cmd\`, \`npm.cmd\`. Script (\`.ps1\`) execution is blocked, so bare \`openclaw\`/\`npx\` fail with "running scripts is disabled".\n- Multi-line code: write it to a file (\`write\` tool) and run it (\`node file.js\`); don't cram it into \`node -e "..."\`.\n- A long command moved to the background ("Command still running … session …"): follow it with the \`process\` tool (poll/log) for that session. Do NOT start it again, especially skill/plugin installs: two concurrent installs lock each other ("being changed by another OpenClaw lifecycle") and fail with \`EPERM\`.\n- Install skills with \`openclaw.cmd skills install <slug>\` (goes through OpenClaw's security check), ONCE.`;
@@ -1533,6 +1544,8 @@ Add whatever helps you do your job. This is your cheat sheet.
     buildSecurityRules,
     buildFileSendSteps,
     buildWindowsExecNotes,
+    buildWindowsExecNotesBase,
+    buildWindowsPythonNote,
     upgradeCronjobSkillMd,
     buildAgentsDoc,
     buildToolsDoc,

