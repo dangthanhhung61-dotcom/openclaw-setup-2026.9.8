@@ -498,7 +498,7 @@ if(touched){console.log('[patch-9router] Applied Codex compatibility patch.');}e
     runtimeParts.push([
       'if grep -q \'"duckduckgo"\' "$OPENCLAW_HOME/openclaw.json" 2>/dev/null && [ ! -d "$OPENCLAW_HOME/extensions/duckduckgo" ]; then',
       '  echo "[entrypoint] installing external duckduckgo plugin (openclaw >=2026.8 unbundled it)"',
-      '  yes | openclaw plugins install @openclaw/duckduckgo-plugin --accept-capabilities || true',
+      '  yes | openclaw plugins install @openclaw/duckduckgo-plugin@2026.9.8 --accept-capabilities || true',
       'fi',
     ].join('\n'));
     // ── Doctor-on-upgrade ─────────────────────────────────────────────────────────────────

@@ -7258,7 +7258,9 @@ const PLUGIN_NPM_SPEC = {
   // `learning-memory`, used as the config key). Install by the full package spec.
   'learning-memory': 'clawhub:openclaw-learning-memory',
   // duckduckgo is openclaw's own external plugin on npm, not a ClawHub package.
-  'duckduckgo': '@openclaw/duckduckgo-plugin',
+  // Pinned to the OpenClaw pin (common-gen OPENCLAW_NPM_SPEC): @latest requires a newer plugin API
+  // (2026.10.5 needs host >=2026.10.5), so an unpinned install fails on 2026.9.8.
+  'duckduckgo': '@openclaw/duckduckgo-plugin@2026.9.8',
   // Zalo Bot API channel - also a plain npm package under openclaw's own scope.
   'zalo': '@openclaw/zalo',
 };
