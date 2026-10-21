@@ -1,6 +1,19 @@
 # Changelog (English)
 
 
+## [Unreleased]
+### 🔗 Every install and update path points at this repository
+
+- 🔧 **"Update" no longer installs the upstream npm build.** `create-openclaw-bot` on npm is the original
+  author's build, yet the update button (npx and global npm installs), the relaunch after an update and
+  "2 - MO GIAO DIEN" without a known source still fetched it - one click and every fix of this repository
+  was gone. They all use `github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8` now; the update installs
+  `main`'s latest commit (npx keeps the `github:` copy it fetched first, so rerunning the same command can
+  bring back the old build).
+- 📄 `docs/SETUP.md`, `docs/SETUP.vi.md` and the README install / update from this repository instead of
+  `npx create-openclaw-bot`.
+
+
 ## [5.18.5] - 2026-10-21
 ### 🔧 Windows: folders with spaces, other drives; foreign web pages blocked; safer bot create/edit/delete
 

@@ -11,15 +11,15 @@ Bạn có hai cách để bắt đầu:
 ### Cách 1: Sử dụng lệnh NPX (Khuyên dùng)
 Không cần tải trước mã nguồn, chỉ cần mở terminal và chạy lệnh:
 ```bash
-npx create-openclaw-bot
+npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8 --project-dir=C:\bot
 ```
 Hệ thống sẽ khởi tạo máy chủ cục bộ và tự động mở trình duyệt hiển thị giao diện cài đặt (mặc định tại `http://127.0.0.1:51789`).
 
 ### Cách 2: Tải thủ công từ Repository
-Nếu bạn đã clone hoặc tải mã nguồn về máy:
+Nếu bạn đã clone hoặc tải mã nguồn về máy (không cần `npm install`):
 ```bash
-npm install
-npm start
+git clone https://github.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8.git
+node openclaw-setup-2026.9.8/dist/cli.js --project-dir=C:\bot
 ```
 
 ---

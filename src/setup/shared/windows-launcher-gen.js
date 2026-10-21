@@ -119,7 +119,8 @@ function buildSetupUiCmd({ projectDir, setupPort, setupCommand }) {
   // Relaunch the SAME Setup that wrote this file (local-server setupRelaunchCommand). Always calling
   // the npm build meant a Setup started from a local checkout or `npx github:...` was swapped for the
   // published build at the next "Mo giao dien" - its fixes vanished (C:\bot, 18/10/2026).
-  const launch = setupCommand || 'npx --yes create-openclaw-bot';
+  // Never the npm build: `create-openclaw-bot` on npm is the upstream one, not this repo.
+  const launch = setupCommand || 'npx --yes github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8';
   return CRLF(
     '@echo off\n' +
     'rem Ten tep nhat ky kem gio, de lan chay sau khong dung vao tep dang bi giu (trap 3).\n' +
