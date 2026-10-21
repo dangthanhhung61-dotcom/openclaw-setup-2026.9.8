@@ -30,16 +30,16 @@ OpenClaw **2026.9.8** · Windows · macOS · Linux · MIT
 ## Cài đặt
 
 ```bash
-npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8 --project-dir=C:\bot
+npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8
 ```
 
-Giao diện tự mở tại **http://127.0.0.1:51789**. Thư mục project tuỳ bạn đặt; bỏ `--project-dir` thì mặc định là `C:\openclaw-setup` (Windows) hoặc `~/openclaw-setup` (macOS, Linux).
+Giao diện tự mở tại **http://127.0.0.1:51789**. Thư mục project bạn chọn ngay trong giao diện khi bấm **Cài đặt** (gợi ý sẵn `C:\openclaw-setup` trên Windows, `~/openclaw-setup` trên macOS và Linux).
 
 Hoặc tải mã về rồi chạy, không cần `npm install`:
 
 ```bash
 git clone https://github.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8.git
-node openclaw-setup-2026.9.8/dist/cli.js --project-dir=C:\bot
+node openclaw-setup-2026.9.8/dist/cli.js
 ```
 
 ## Các bước trên giao diện
