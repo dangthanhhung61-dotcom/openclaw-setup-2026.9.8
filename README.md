@@ -57,7 +57,7 @@ node openclaw-setup-2026.9.8/dist/cli.js --project-dir=C:\bot
 - **Start or stop the bot**: the **Khởi động Bot** shortcut on the Desktop, or the **Bot OpenClaw** folder in the Start Menu (which also has **Dừng Bot** and **Mở giao diện quản trị**, the dashboard).
 - **Reopen the dashboard**: run the install command again, or use **Mở giao diện quản trị** in the Start Menu.
 - **Edit the persona and rules**: **Bot** tab → file tree (`SOUL.md`, `AGENTS.md`, `USER.md`), then **Save**.
-- **Update Setup**: when a new version is out, the dashboard shows an **Update x.y.z** button in the top bar. It installs the latest commit of this repository (not the npm package `create-openclaw-bot`, which is the upstream build).
+- **Update Setup**: when a new version is out, the dashboard shows an **Update x.y.z** button in the top bar. It installs the latest commit of this repository (not the npm package `create-openclaw-bot`, which is the upstream build). Running the `npx github:…` command again also gets the latest version.
 
 ## FAQ
 

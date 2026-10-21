@@ -8,8 +8,7 @@
   author's build, yet the update button (npx and global npm installs), the relaunch after an update and
   "2 - MO GIAO DIEN" without a known source still fetched it - one click and every fix of this repository
   was gone. They all use `github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8` now; the update installs
-  `main`'s latest commit (npx keeps the `github:` copy it fetched first, so rerunning the same command can
-  bring back the old build).
+  `main`'s latest commit - exactly the version the dashboard just offered.
 - 📄 `docs/SETUP.md`, `docs/SETUP.vi.md` and the README install / update from this repository instead of
   `npx create-openclaw-bot`.
 

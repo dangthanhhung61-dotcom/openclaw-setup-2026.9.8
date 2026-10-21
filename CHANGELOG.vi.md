@@ -8,7 +8,7 @@
   nhưng nút cập nhật (cả bản cài bằng npx lẫn npm toàn cục), lệnh mở lại Setup sau khi cập nhật và tệp
   "2 - MO GIAO DIEN" khi không rõ nguồn vẫn tải nó - bấm cập nhật là mất hết các bản sửa của repo này.
   Nay đều dùng `github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8`; nút cập nhật cài đúng commit mới
-  nhất của `main` (npx giữ bản `github:` đã tải lần đầu, nên chạy lại cùng lệnh có thể ra bản cũ).
+  nhất của `main` - đúng bản mà giao diện vừa báo có.
 - 📄 `docs/SETUP.md`, `docs/SETUP.vi.md` và README hướng dẫn cài / cập nhật bằng repo này thay vì
   `npx create-openclaw-bot`.
 
