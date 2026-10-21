@@ -57,7 +57,7 @@ node openclaw-setup-2026.9.8/dist/cli.js --project-dir=C:\bot
 - **Bật, tắt bot**: lối tắt **Khởi động Bot** trên Desktop, hoặc thư mục **Bot OpenClaw** trong Start Menu (có thêm **Dừng Bot** và **Mở giao diện quản trị**).
 - **Mở lại giao diện**: chạy lại lệnh cài đặt ở trên, hoặc **Mở giao diện quản trị** trong Start Menu.
 - **Sửa tính cách, quy tắc**: tab **Bot** → cây tệp (`SOUL.md`, `AGENTS.md`, `USER.md`), sửa xong bấm **Lưu**.
-- **Cập nhật bộ cài**: khi có bản mới, giao diện hiện nút **Cập nhật x.y.z** ở thanh trên cùng. Nút này cài commit mới nhất của repo này (không phải gói npm `create-openclaw-bot`, đó là bản gốc của tác giả cũ).
+- **Cập nhật bộ cài**: khi có bản mới, giao diện hiện nút **Cập nhật x.y.z** ở thanh trên cùng. Nút này cài commit mới nhất của repo này (không phải gói npm `create-openclaw-bot`, đó là bản gốc của tác giả cũ). Chạy lại lệnh `npx github:…` ở trên cũng lấy được bản mới nhất.
 
 ## Câu hỏi thường gặp
 

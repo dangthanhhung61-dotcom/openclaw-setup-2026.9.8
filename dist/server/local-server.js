@@ -585,9 +585,10 @@ const SETUP_GITHUB_REPO = 'dangthanhhung61-dotcom/openclaw-setup-2026.9.8';
 const SETUP_INSTALL_SPEC = `github:${SETUP_GITHUB_REPO}`;
 
 /**
- * `github:<repo>#<sha of main>` - a NEW spec for every commit. npx keys its cache on the spec and
- * keeps running the copy it fetched first for a bare `github:<repo>`, so updating with that spec
- * could bring back the old build. Falls back to the bare spec when GitHub cannot be asked.
+ * `github:<repo>#<sha of main>`: the update installs exactly the commit whose version the dashboard
+ * just offered, not whatever `main` is a minute later. (npm 11 does re-resolve a bare `github:` spec
+ * on every run - measured 22/10/2026 - so the bare spec also works; this only pins it.) Falls back
+ * to the bare spec when GitHub cannot be asked.
  */
 async function latestSetupSpec() {
   try {
@@ -8582,9 +8583,8 @@ async function handler(req, res, rootProjectDir) {
             // An npx install: warm the package cache HERE, while the UI is still up and the
             // browser is still watching the log. Leaving it to the relaunch meant the download
             // happened with no server running and nothing to report progress to, so a slow link
-            // looked exactly like a crash. The spec carries main's commit (latestSetupSpec), so
-            // npx really fetches the new build instead of rerunning its cached copy; the relaunch
-            // and setup-ui.cmd then start that exact build.
+            // looked exactly like a crash. The spec carries main's commit (latestSetupSpec); the
+            // relaunch and setup-ui.cmd then start that exact build.
             pendingSetupSpec = await latestSetupSpec();
             sendLog(`[update-setup] Tải bản mới từ GitHub (${pendingSetupSpec})…`);
             // `npx <spec> --version`, not `npm cache add`: npm 11 cannot cache-add a git spec
