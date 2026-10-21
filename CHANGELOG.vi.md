@@ -2,12 +2,125 @@
 
 
 ## [Chưa phát hành]
-### 🏷️ Thương hiệu
+### 🔧 Windows: thư mục có dấu cách, khác ổ đĩa; chặn trang web lạ; tạo/sửa/xoá bot an toàn hơn
 
+**Thương hiệu**
 - 🏷️ **Chỉ còn "OpenClaw Setup".** Bỏ dòng tác giả và các liên kết mạng xã hội ở thanh bên và chân trang,
   nút "Mời Cafe" cùng mã QR ngân hàng/MoMo, dòng tên dưới logo ở dòng lệnh và trường `author` trong
   package.json. Kiểm tra phiên bản mới đọc từ repo này. README viết lại cho repo này, kèm ảnh chụp mới.
   Dòng bản quyền trong LICENSE được giữ vì giấy phép MIT bắt buộc.
+
+**Cài đặt và chạy trên Windows**
+- 🔧 **Cài được khi project nằm khác ổ đĩa với thư mục người dùng** (vd. `D:\bot`, tài khoản ở
+  `C:\Users\...`). Bước chuyển dữ liệu sang `~\.openclaw` trước đây chỉ biết đổi tên nên báo `EXDEV` và
+  việc cài dừng giữa chừng. Nay Setup sao chép (giữ các junction của plugin), tạo junction rồi mới xoá
+  bản cũ. Chép hay tạo junction lỗi thì dữ liệu được đưa về chỗ cũ. Tệp OneDrive / tệp nén của Windows
+  không còn làm hỏng cả bước chuyển.
+- 🔧 **Các tệp bấm-đúp được ghi lại sau khi chuyển dữ liệu**, để "Khởi động Bot" trỏ đúng thư mục dữ liệu
+  thật thay vì junction mà OpenClaw từ chối.
+- 🔧 **Project trong thư mục có dấu cách hoặc chữ tiếng Việt chạy được** (vd. `D:\bo cai\bot`,
+  `D:\Dự án bot`, `C:\Users\Nguyễn`). Trước đây gateway, 9Router, node điều khiển máy và lối tắt
+  "Khởi động Bot" không khởi động được vì đường dẫn bị cắt ở dấu cách, hoặc tệp .cmd bị hỏng dấu.
+  Lệnh chạy qua `cmd.exe` nay trích dẫn từng đối số (bật Docker Desktop cũng hết lỗi vì
+  `C:\Program Files\...`).
+- 🔧 **Khoá API của 9Router được tạo thật lúc cài.** 5.18.4 chỉ thử một lần, 8 giây sau khi bật 9Router,
+  trong khi trên Windows 9Router cần ~10 giây mới mở cổng. Lần thử hụt không báo gì, và bot giữ
+  `sk-no-key` (tin nhắn đầu tiên lỗi 401). Nay Setup chờ 9Router mở cổng, thử lại tối đa 5 lần, và ghi lý do
+  nếu vẫn không được (đo khi cài thật trên C:\bot, 19/10/2026).
+- 🔧 **Plugin duckduckgo và Zalo Bot API (`@openclaw/zalo`) được ghim về 2026.9.8**, khớp với OpenClaw
+  2026.9.8. Bản "mới nhất" (2026.10.5) đòi OpenClaw ≥ 2026.10.5 nên cài lỗi "requires plugin API
+  >=2026.10.5", và bot Zalo Bot API không nhận được tin.
+- 🔧 **Tạo bot không còn cài lại các plugin đang chạy tốt.** Mỗi lần tạo bot Setup xác nhận quyền cho
+  từng plugin qua gateway, và coi MỌI lỗi là "chưa có quyền" rồi cài lại plugin đó. Khi gateway đang bận
+  nạp plugin Zalo vừa cài, cả learning-memory, duckduckgo lẫn zalo-connect đều bị cài lại, mỗi lần chờ tới
+  5 phút, và lần cài lại zalo-connect bị cắt ngang để plugin thiếu thư viện. Nay chỉ cài lại khi lỗi thật
+  sự là thiếu quyền; gateway chưa trả lời thì để lần khởi động sau xác nhận (đo khi cài thật trên C:\bot,
+  19/10/2026).
+- 🔧 **Tệp .cmd gọi đúng node và openclaw đang có trên máy** (nvm-windows, Scoop, Volta, npm prefix
+  riêng), không còn đường cứng `%ProgramFiles%\nodejs` / `%APPDATA%\npm`.
+- 🔧 **"Mở giao diện quản trị" mở lại đúng bản Setup đã cài nó, kể cả khi cài bằng
+  `npx github:...`.** 5.18.4 chỉ giữ được bản chạy từ thư mục cục bộ; bản cài từ GitHub vẫn bị thay bằng
+  bản trên npm. Đường dẫn project có dấu cách cũng được giữ nguyên.
+- 🔧 **Lối tắt "Khởi động Bot" tạo được khi tên thư mục hoặc tài khoản có chữ tiếng Việt** (vd.
+  `D:\Dự án bot`, `C:\Users\Nguyễn`). Trước đây Windows báo "Unable to save shortcut" nên không có lối
+  tắt nào, hoặc lối tắt trỏ vào đường dẫn hỏng dấu (`D? án bot`). Lỗi tạo lối tắt nay ghi rõ lý do.
+- 🔧 **"1 - KHOI DONG BOT" và "2 - MO GIAO DIEN" chạy được với thư mục có `&`, `'`, `(`, `)`, `[`, `]`**
+  (vd. `A&B`, `O'Brien bot`, `Bot (copy)`). Thư mục có `%` bị từ chối ngay lúc cài, vì Windows hiểu `%`
+  là biến và mọi tệp .cmd đều hỏng.
+- 🔧 **"Dừng Bot" và "3 - DUNG BOT" chỉ dừng bot của đúng project đó**, không tắt luôn bot của project
+  khác trên cùng máy; "Dừng Bot" bấm được cả khi bot đang khởi động dở. Node điều khiển máy cũng được
+  nhận theo cổng của từng bot: node của project khác không còn bị coi là "đã chạy sẵn", và xoá một
+  project không còn tắt điều khiển máy của project kia.
+- 🔧 **"Khởi động Bot" bật lại 9Router / node điều khiển máy khi chúng đã tắt** mà gateway vẫn chạy,
+  thay vì báo "Bot đang chạy rồi" trong khi bot không trả lời được.
+- 🔧 Tệp cũ trên Desktop của project tên tiếng Việt được dọn đúng (trước đây sót lại), và không dọn nhầm
+  tệp của project khác tên gần giống (`C:\bot` không còn nhận tệp của `C:\bot2`). Project đặt ở gốc ổ
+  đĩa (`D:\`) tạo được lối tắt.
+- 🔧 **Khởi động lại bot từ giao diện bật lại cả node điều khiển máy** (trước đây điều khiển máy chết sau
+  mỗi lần khởi động lại dù công tắc vẫn báo BẬT). Không dừng được gateway cũ thì báo rõ, thay vì báo
+  "đã khởi động lại" trong khi cấu hình mới chưa được áp dụng.
+- 🔧 **Cập nhật OpenClaw dừng gateway trước khi cài**, tránh lỗi EPERM/EBUSY vì tệp đang chạy; cài lỗi
+  thì bot được bật lại trên bản cũ.
+- 🔧 **Xoá project dừng hẳn bot** (gateway, 9Router, node điều khiển máy) trước khi xoá, nên thư mục xoá
+  được và bot không còn trả lời sau khi đã xoá. Chỉ dừng tiến trình của đúng project đó.
+- 🔧 `doctor --fix`, cài skill/plugin dùng thư mục dữ liệu thật thay vì đường junction mà OpenClaw
+  2026.8+ từ chối ghi.
+
+**An toàn**
+- 🔒 **Trang web lạ không điều khiển được Setup nữa.** API của Setup không có đăng nhập, nên trang nào đang
+  mở trong trình duyệt cũng gửi lệnh tới `127.0.0.1:51789` được (xoá project, bật điều khiển máy, cài
+  skill...), và tên miền "DNS rebinding" còn đọc được token. Nay Setup chỉ nhận Host là địa chỉ IP,
+  `localhost` hoặc host đã khởi động, và lệnh thay đổi phải đến từ chính trang Setup. Chạy sau reverse
+  proxy có tên miền thì khai `OPENCLAW_SETUP_ALLOWED_HOSTS=ten.mien`.
+- 🔒 **"Xoá project" không thể xoá nhầm thư mục người dùng.** Chốt chặn cũ so chuỗi phân biệt hoa thường,
+  nên `c:\users\<tên>` (có `.openclaw\openclaw.json` từ OpenClaw 2026.8) lọt qua. Nay so đường thật,
+  không phân biệt hoa thường, và chặn mọi thư mục cha của thư mục người dùng.
+- 🔒 **Bấm "Cài đặt" lại vào thư mục đang có bot không còn xoá sạch cấu hình** (mọi bot, đăng nhập kênh,
+  token gateway). Setup từ chối và chỉ cách khác; lần cài dở dang vẫn cài lại được, có bản sao lưu
+  `.bak-reinstall-<giờ>`. Bấm "Cài đặt" hai lần liền không còn chạy hai bản cài song song.
+- 🔧 **Cài project mới bằng Docker bị từ chối rõ ràng** cả ở máy chủ (trước đây chỉ giao diện khoá ô
+  Docker; trang cũ còn trong bộ nhớ đệm vẫn tạo được bản cài hỏng). Project Docker cũ vẫn quản lý được và
+  chuyển sang Native được.
+- 🔧 Setup không còn sập khi trình duyệt xin một đường dẫn là thư mục (vd. `/%2e%2f`).
+- 🔧 Token Telegram và tên skill được kiểm tra định dạng trước khi đưa vào lệnh shell.
+
+**Bot**
+- 🔒 **Xoá bot đang làm "chủ" (heartbeat/system/talk) không còn làm hỏng cấu hình** khiến mọi bot cùng
+  chết: quyền chủ được chuyển sang bot kế tiếp, và cấu hình được kiểm tra trước khi xoá workspace. Script
+  khởi động cũng tự sửa chủ trỏ vào bot đã xoá, và không đặt `agents.ownership=explicit` khi còn cờ cũ
+  `default: true` (OpenClaw 2026.9 từ chối cặp đó).
+- 🔧 **Bot Telegram thứ hai không còn xoá token của bot đầu** ở project cũ/không ghi `accountId`.
+- 🔧 **Mỗi project chỉ một bot Zalo Bot API** - trước đây bot thứ hai lặng lẽ chiếm token và bot đầu trả
+  lời trên tài khoản của bot sau.
+- 🔧 Xoá bot Zalo cá nhân gỡ luôn tài khoản Zalo của nó trong cấu hình.
+- 🔧 **ID bot hợp lệ**: tên tiếng Việt thành ID không dấu ("Đức Trợ Lý" → `duc-tro-ly`, trước đây ra `-c`
+  mà OpenClaw từ chối); ô nhập ID kiểm tra được thật; `default` được dành riêng; bot có ID bắt đầu bằng
+  `_` hoặc `-` xoá được.
+- 🔧 Sửa bot không còn làm mất hướng dẫn điều khiển máy và thư mục được cấp quyền của bot.
+- 🔧 Workspace mà chủ bot tự đặt ở chỗ khác (vd. `D:\shop`) không còn bị kéo về thư mục mặc định.
+- 🔧 Skill hẹn giờ ghi đúng kênh của từng bot (Telegram, Zalo Bot API, Messenger - trước đây luôn là Zalo
+  cá nhân) và đúng múi giờ khi bật từ giao diện.
+- 🔧 Tạo bot Telegram trên bản cài trực tiếp không còn chạy lệnh Docker và khởi động lại gateway hai lần.
+- 🔧 Danh sách bot đọc được tên và vai trò trong IDENTITY.md (chữ "Tên"/"Vai trò" bị sai mã).
+- 🔧 zalo-mod nhận đúng tên của bot gắn với tài khoản Zalo cá nhân, không lấy nhầm bot đầu danh sách.
+
+**Bản vá zalo-connect (v3, tự nâng cấp từ v2 ở lần khởi động sau)**
+- 🔧 **Trả lời câu hỏi của bot ("1", "2"...) sau khi gửi ảnh không còn bị bỏ qua.** Bản vá cũ gắn
+  "[Kèm lại N ảnh]" vào câu trả lời nên nó không khớp lựa chọn nào, và câu hỏi đang chờ bị huỷ.
+- 🔧 **Trong nhóm, gọi tên bot ("Jarvis ơi xuất excel") cũng nhận được ảnh vừa gửi**, như khi @tag.
+- 🔧 Một tin nhắn trong nhóm không gọi bot, gửi ngay sau loạt ảnh, không còn "nuốt" mất loạt ảnh đó.
+- 🔧 Vá **mọi** bản zalo-connect đang cài (OpenClaw 2026.9 có thể giữ nhiều bản và chạy bản mới nhất),
+  thay vì chỉ bản tìm thấy đầu tiên.
+- 🔧 Bản vá chỉ áp dụng khi plugin có đủ mọi tên mà mã vá dùng; kiểm tra cú pháp chạy thật (trước đây
+  có thể bỏ sót lỗi); tệp được ghi kiểu thay-nguyên-tệp, không còn nguy cơ plugin bị cắt dở.
+- 🔧 Ảnh không ai hỏi tới được dọn khỏi bộ nhớ sau 10 phút; tin bị chặn có chủ đích không còn bị "gửi lại".
+
+**Giao diện**
+- 🔧 Chọn thư mục project có tên tiếng Việt không còn bị hỏng chữ.
+- 🔧 Lưu API key 9Router hiện "Đã lưu" và tải lại trạng thái; lỗi khi bấm Cài đặt được báo ra màn hình.
+- 🔧 Đường dẫn cài mặc định là `C:\openclaw-setup` (Windows) hoặc thư mục home thật (macOS/Linux), không
+  còn `E:\bot` / `/home/you`.
+- 🔧 `--port` sai hoặc `--host` không thuộc máy này báo lỗi rõ thay vì dò hết 65536 cổng rồi sập.
 
 
 ## [5.18.4] - 2026-10-17

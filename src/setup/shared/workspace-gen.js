@@ -569,7 +569,24 @@ _Good luck out there. Make it count._
     return out;
   }
 
+  /** OpenClaw channel id a bot of this setup channel delivers on ('' / unknown → Zalo personal, as before). */
+  function deliveryChannelFor(channel, zaloBackend = 'zalo-connect') {
+    if (channel === 'telegram') return 'telegram';
+    if (channel === 'zalo-bot') return 'zalo';
+    if (channel === 'fb-messenger') return 'fb-messenger';
+    return zaloBackend || 'zalo-connect';
+  }
+
+  // `zaloDeliveryChannel` is the BOT's own delivery channel (name kept for callers). It used to be
+  // 'zalo-connect' for every bot, so Telegram / Zalo Bot API / Messenger bots scheduled deliveries to
+  // a channel they do not have.
   function buildCronjobSkillMd(isVi = true, zaloDeliveryChannel = 'zalo-connect', tz = 'Asia/Ho_Chi_Minh') {
+    const isZaloPersonal = zaloDeliveryChannel === 'zalo-connect';
+    const toLine = isZaloPersonal
+      ? `  - \`to\`: **ID THÔ, KHÔNG tiền tố**. Group Zalo → groupId thẳng (vd \`"1925989252066183028"\`); DM → userId. ⚠️ **KHÔNG thêm \`g:\`** (sẽ lỗi \`Unknown target "g:..."\`).`
+      : `  - \`to\`: ID cuộc trò chuyện trên kênh \`${zaloDeliveryChannel}\` (Telegram: chat id - nhóm là số âm dạng \`-100…\`, DM là user id). Lấy đúng ID từ chính cuộc trò chuyện đó, KHÔNG đoán.`;
+    const exampleA = isZaloPersonal ? '1228185345777623323' : '-1001234567890';
+    const exampleB = isZaloPersonal ? '1925989252066183028' : '-1009876543210';
     return upgradeCronjobSkillMd(`---
 name: cronjob
 description: Lên lịch tác vụ định kỳ sử dụng công cụ cron.
@@ -595,7 +612,7 @@ Truyền tham số \`job\` (object) gồm:
 - **\`delivery\`** - 🚨 **BẮT BUỘC** cho tin gửi tới người/nhóm. Isolated job reset routing mỗi lần chạy, nên phải ghi rõ \`channel\` + \`to\`; thiếu → lỗi \`Refusing implicit isolated cron delivery\` (không gửi được):
   - \`mode\`: \`"announce"\`. ⛔ **KHÔNG dùng \`"none"\`** - job vẫn chạy "ok" nhưng KHÔNG gửi gì (đây là bẫy thường gặp).
   - \`channel\`: \`"${zaloDeliveryChannel}"\` (KHÔNG để \`"last"\`).
-  - \`to\`: **ID THÔ, KHÔNG tiền tố**. Group Zalo → groupId thẳng (vd \`"1925989252066183028"\`); DM → userId. ⚠️ **KHÔNG thêm \`g:\`** (sẽ lỗi \`Unknown target "g:..."\`).
+${toLine}
 
 ### 📦 Ví dụ A - LẶP LẠI (chúc buổi sáng 9:05 mỗi ngày cho 1 nhóm):
 \`\`\`json
@@ -604,7 +621,7 @@ Truyền tham số \`job\` (object) gồm:
   "wakeMode": "now",
   "schedule": { "kind": "cron", "expr": "5 9 * * *", "tz": "${tz}" },
   "payload": { "kind": "agentTurn", "message": "Viết MỘT lời chúc buổi sáng MỚI mỗi ngày, tích cực, ấm áp, lịch sự, không lặp lại. Chỉ trả về đúng nội dung lời chúc." },
-  "delivery": { "mode": "announce", "channel": "${zaloDeliveryChannel}", "to": "1228185345777623323" }
+  "delivery": { "mode": "announce", "channel": "${zaloDeliveryChannel}", "to": "${exampleA}" }
 }
 \`\`\`
 
@@ -615,7 +632,7 @@ Truyền tham số \`job\` (object) gồm:
   "wakeMode": "now",
   "schedule": { "kind": "at", "at": "2026-07-22T00:30:00", "tz": "${tz}" },
   "payload": { "kind": "agentTurn", "message": "Chúc cả nhà ngủ ngon 🌙" },
-  "delivery": { "mode": "announce", "channel": "${zaloDeliveryChannel}", "to": "1925989252066183028" }
+  "delivery": { "mode": "announce", "channel": "${zaloDeliveryChannel}", "to": "${exampleB}" }
 }
 \`\`\`
 
@@ -1488,6 +1505,8 @@ Add whatever helps you do your job. This is your cheat sheet.
       zaloBackend = 'zalo-connect',
       userTimezone = 'Asia/Ho_Chi_Minh',
       nativeHost = '',
+      // Setup channel of this bot ('telegram' | 'zalo-personal' | 'zalo-bot' | 'fb-messenger').
+      channel = '',
     } = opts;
 
     const isMultiBot = variant === 'relay';
@@ -1517,7 +1536,7 @@ Add whatever helps you do your job. This is your cheat sheet.
     }
 
     if (hasScheduler) {
-      files['skills/cronjob/SKILL.md'] = buildCronjobSkillMd(isVi, 'zalo-connect', userTimezone);
+      files['skills/cronjob/SKILL.md'] = buildCronjobSkillMd(isVi, deliveryChannelFor(channel, zaloBackend), userTimezone);
     }
 
     // NOTE: the old `zalo-actions` agent skill was removed - its guidance (Zalo conventions +
@@ -1547,6 +1566,7 @@ Add whatever helps you do your job. This is your cheat sheet.
     buildWindowsExecNotesBase,
     buildWindowsPythonNote,
     upgradeCronjobSkillMd,
+    deliveryChannelFor,
     buildAgentsDoc,
     buildToolsDoc,
     buildTeamsDoc,

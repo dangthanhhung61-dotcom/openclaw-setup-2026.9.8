@@ -143,7 +143,8 @@ if (process.env.OPENCLAW_SETUP_WIZARD === 'true' || isLocalRepo() || hasBundledS
   await startLocalInstaller({
     openBrowser: !noOpen,
     host: hostArg ? hostArg.slice('--host='.length) : '127.0.0.1',
-    preferredPort: portArg ? Number(portArg.slice('--port='.length)) : 51789,
+    // A port that is not 1-65535 (`--port abc`) crashed server.listen with a raw stack.
+    preferredPort: (() => { const p = portArg ? Number(portArg.slice('--port='.length)) : 51789; return Number.isInteger(p) && p > 0 && p < 65536 ? p : 51789; })(),
     projectDir: projectDir,
   });
 } else {

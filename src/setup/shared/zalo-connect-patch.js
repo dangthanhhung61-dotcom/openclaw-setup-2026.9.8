@@ -23,11 +23,18 @@
  *
  * zalo-connect is installed as "latest", so the anchors are matched EXACTLY and all-or-nothing: a
  * build that does not contain every anchor once is left untouched ("incompatible").
+ *
+ * v3: "addressed" follows the plugin's own rule (DM, @mention OR the bot's name in a group) and is
+ * never true while an ask_user question is pending - appending "[Kèm lại N ảnh]" to the answer "1"
+ * stopped it matching the options. A group text that does not address the bot no longer uses up the
+ * batch. Expired batches are pruned, deliberately suppressed text is not "retried", and every name
+ * the injected code relies on must be present (REQUIRED) or nothing is patched.
  */
 const QUIET_MS = 8000;      // longest gap seen inside one send was 5.8 s
 const MAX_MS = 90000;       // never hold a burst longer than this
 const LINGER_MS = 600000;   // re-attach window for the follow-up request (10 min)
-const MARKER = '[openclaw-setup local patch: media-burst v2]';
+const MARKER = '[openclaw-setup local patch: media-burst v3]';
+const ANY_MARKER = /\[openclaw-setup local patch: media-burst v\d+\]/;
 
 const FN_SOURCE = `// ${MARKER} Batch a burst of photos from one sender into one agent turn.
 function createZaloMediaBurstRouter(routeNow, { quietMs = ${QUIET_MS}, maxMs = ${MAX_MS}, lingerMs = ${LINGER_MS}, isAddressed = () => true } = {}) {
@@ -40,6 +47,12 @@ function createZaloMediaBurstRouter(routeNow, { quietMs = ${QUIET_MS}, maxMs = $
   const safeRoute = (m) => {
     try { return routeNow(m); } catch (err) { console.error(\`[zalo-connect] media-burst route failed: \${String(err)}\`); }
   };
+  const addressedBy = (c) => { try { return !!isAddressed(c); } catch { return false; } };
+  const remember = (key, items) => {
+    const now = Date.now();
+    for (const [k, v] of recent) if (now - v.at > lingerMs) recent.delete(k);
+    recent.set(key, { items, at: now });
+  };
   const flush = (key, extra) => {
     const b = bursts.get(key);
     if (!b) return;
@@ -49,8 +62,10 @@ function createZaloMediaBurstRouter(routeNow, { quietMs = ${QUIET_MS}, maxMs = $
     const base = extra ?? b.items[b.items.length - 1];
     const count = urlsOf(items).length;
     const caption = extra && !isMediaOnly(extra) ? String(extra.content ?? "").trim() : "";
-    if (caption) recent.delete(key);
-    else recent.set(key, { items, at: Date.now() });
+    // A request the agent answers uses the batch up. One it does not (a group text with no mention)
+    // only becomes passive context, text only - keep the photos for the sender's next @mention.
+    if (caption && addressedBy(extra)) recent.delete(key);
+    else remember(key, items);
     safeRoute({
       ...base,
       mediaUrls: urlsOf(items),
@@ -85,9 +100,7 @@ function createZaloMediaBurstRouter(routeNow, { quietMs = ${QUIET_MS}, maxMs = $
       if (Date.now() - prev.at > lingerMs) {
         recent.delete(key);
       } else {
-        let addressed = false;
-        try { addressed = !!isAddressed(c); } catch {}
-        if (addressed) {
+        if (addressedBy(c)) {
           recent.delete(key);
           const n = urlsOf(prev.items).length;
           return safeRoute({
@@ -114,7 +127,7 @@ const EDITS = [
     '      const routeInboundNow = (converted) => {'],
   ['router install',
     '      api.listener.on("message", (msg) => {',
-    `      // ${MARKER}\n      const routeInbound = createZaloMediaBurstRouter(routeInboundNow, {\n        isAddressed: (c) => !c.metadata?.isGroup || (Array.isArray(c.mentions) && c.mentions.some((m) => String(m?.uid ?? "") === String(selfUid ?? "")))\n      });\n      api.listener.on("message", (msg) => {`],
+    `      // ${MARKER}\n      const routeInbound = createZaloMediaBurstRouter(routeInboundNow, {\n        // Same rule as processMessage (DM, @mention or the bot's name), but never an answer to a pending\n        // ask_user question: extra text would stop it matching the options.\n        isAddressed: (c) => !peekPendingQuestion(account.accountId, c.threadId) && (!c.metadata?.isGroup\n          || (Array.isArray(c.mentions) && c.mentions.some((m) => String(m?.uid ?? "") === String(selfUid ?? "")))\n          || textMentionsAnyName(String(c.content ?? ""), [getCurrentName(account.accountId), ...(account.config.nameTriggers ?? []).map((v) => String(v)), ...getRuntimeNameTriggers(account.accountId)]))\n      });\n      api.listener.on("message", (msg) => {`],
   ['windows local paths',
     '  return trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../");\n}\nvar ZALO_MAX_TEXT_LENGTH',
     `  // ${MARKER} Windows drive-letter paths are local files too (were sent as broken links).\n  return trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../") || /^[A-Za-z]:[\\\\/]/.test(trimmed);\n}\nvar ZALO_MAX_TEXT_LENGTH`],
@@ -126,7 +139,20 @@ const EDITS = [
     `        const mediaRes = await sendMessageZaloConnect(chatId, caption ?? "", { accountId, mediaUrl, isGroup, quote: getQuoteOnce() });\n        if (mediaRes && mediaRes.ok === false) runtime2.error(\`Media send failed (\${isGroup ? "group" : "dm"} \${chatId}): \${mediaRes.error}\`);`],
   ['reply text send result',
     '        await sendMessageZaloConnect(chatId, chunk, {\n          accountId,\n          isGroup,\n          quote: getQuoteOnce(),\n          mentions: firstChunk && nativeReplyMention ? [nativeReplyMention] : void 0\n        });',
-    `        const textRes = await sendMessageZaloConnect(chatId, chunk, {\n          accountId,\n          isGroup,\n          quote: getQuoteOnce(),\n          mentions: firstChunk && nativeReplyMention ? [nativeReplyMention] : void 0\n        });\n        if (textRes && textRes.ok === false) {\n          runtime2.error(\`Message send failed (\${isGroup ? "group" : "dm"} \${chatId}): \${textRes.error} - retrying without quote/mention\`);\n          const retryRes = await sendMessageZaloConnect(chatId, chunk, { accountId, isGroup });\n          if (retryRes && retryRes.ok === false) runtime2.error(\`Message send retry failed (\${chatId}): \${retryRes.error}\`);\n        }`],
+    `        const textRes = await sendMessageZaloConnect(chatId, chunk, {\n          accountId,\n          isGroup,\n          quote: getQuoteOnce(),\n          mentions: firstChunk && nativeReplyMention ? [nativeReplyMention] : void 0\n        });\n        if (textRes && textRes.ok === false && !/^provider error suppressed/.test(String(textRes.error ?? ""))) {\n          runtime2.error(\`Message send failed (\${isGroup ? "group" : "dm"} \${chatId}): \${textRes.error} - retrying without quote/mention\`);\n          const retryRes = await sendMessageZaloConnect(chatId, chunk, { accountId, isGroup });\n          if (retryRes && retryRes.ok === false) runtime2.error(\`Message send retry failed (\${chatId}): \${retryRes.error}\`);\n        }`],
+];
+
+// Names the injected code uses without replacing them. A build that renamed one (the bundler renumbers
+// `fs9` when an earlier `fs` import is added) would still parse - and then throw on every reply.
+const REQUIRED = [
+  'import * as fs9 from "fs";',
+  'const { payload, chatId, isGroup, runtime: runtime2,',
+  '      const selfUid = getCurrentUid(account.accountId) ?? api.getOwnId();',
+  'function isLocalFilePath(str) {',
+  'function peekPendingQuestion(accountId, threadId',
+  'function textMentionsAnyName(text, names)',
+  'function getCurrentName(accountId)',
+  'function getRuntimeNameTriggers(accountId)',
 ];
 
 const countOf = (text, needle) => text.split(needle).length - 1;
@@ -139,11 +165,21 @@ function patchZaloConnectSource(src) {
     const n = countOf(text, original);
     if (n !== 1) return { status: 'incompatible', reason: `anchor "${name}" found ${n} times` };
   }
+  for (const needle of REQUIRED) {
+    const n = countOf(text, needle);
+    if (n !== 1) return { status: 'incompatible', reason: `"${needle.trim().slice(0, 50)}" found ${n} times` };
+  }
   let out = text;
   for (const [, original, replacement] of EDITS) out = out.replace(original, () => replacement);
   return { status: 'patched', out };
 }
 
-const api = { patchZaloConnectSource, ZALO_CONNECT_PATCH_MARKER: MARKER };
+/** True when the source carries an OLDER version of this patch (re-patch from the pristine backup). */
+function hasOlderZaloConnectPatch(src) {
+  const text = String(src || '');
+  return ANY_MARKER.test(text) && !text.includes(MARKER);
+}
+
+const api = { patchZaloConnectSource, hasOlderZaloConnectPatch, ZALO_CONNECT_PATCH_MARKER: MARKER };
 if (typeof globalThis !== 'undefined') globalThis.__openclawZaloConnectPatch = api;
 if (typeof exports !== 'undefined') Object.assign(exports, api);
