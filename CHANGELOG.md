@@ -1,13 +1,128 @@
 # Changelog (English)
 
 
-## [Unreleased]
-### 🏷️ Branding
+## [5.18.5] - 2026-10-21
+### 🔧 Windows: folders with spaces, other drives; foreign web pages blocked; safer bot create/edit/delete
 
+**Branding**
 - 🏷️ **Branding is just "OpenClaw Setup".** The author credit and social links in the sidebar and footer,
   the "Mời Cafe" button with its bank/MoMo QR codes, the CLI byline and the `author` field in
   package.json are gone. The version check reads this repository. The README is rewritten for this
   repository, with new screenshots. The LICENSE copyright line stays, as the MIT license requires.
+
+**Installing and running on Windows**
+- 🔧 **Installs work when the project is on another drive than the user profile** (e.g. `D:\bot` with
+  the account on `C:\Users\...`). The move to `~\.openclaw` only knew how to rename, failed with `EXDEV`
+  and stopped the install halfway. Setup now copies (keeping plugin junctions), creates the junction and
+  only then removes the old copy; a failed copy or junction puts the data back. OneDrive placeholders and
+  compressed files no longer break the move.
+- 🔧 **The double-click launchers are rewritten after the state move**, so "Khởi động Bot" points at the
+  real state dir instead of the junction OpenClaw refuses.
+- 🔧 **Projects under folders with spaces or Vietnamese letters work** (`D:\bo cai\bot`, `D:\Dự án bot`,
+  `C:\Users\Nguyễn`). The gateway, 9Router, the PC-control node host and the "Khởi động Bot" shortcut
+  failed to start because the path was cut at the space or the .cmd files mangled the accents. Commands
+  run through `cmd.exe` now quote every argument (which also fixes starting Docker Desktop from
+  `C:\Program Files\...`).
+- 🔧 **The 9Router API key is really created at install time.** 5.18.4 tried once, 8 s after starting
+  9Router, while on Windows 9Router needs ~10 s to open its port. The missed attempt said nothing and the
+  bot kept `sk-no-key` (first message: 401). Setup now waits for 9Router's port, retries up to 5 times and
+  logs the reason if it still fails (measured on a real install on C:\bot, 19/10/2026).
+- 🔧 **The duckduckgo and Zalo Bot API (`@openclaw/zalo`) plugins are pinned to 2026.9.8**, matching
+  OpenClaw 2026.9.8. Their latest (2026.10.5) requires OpenClaw >= 2026.10.5, so the install failed with
+  "requires plugin API >=2026.10.5" and a Zalo Bot API bot received nothing.
+- 🔧 **Creating a bot no longer reinstalls plugins that work.** On every bot creation Setup confirms
+  each plugin's consent through the gateway and treated ANY failure as "no consent", reinstalling the
+  plugin. While the gateway was busy loading the Zalo plugin just installed, learning-memory, duckduckgo
+  and zalo-connect were all reinstalled, each waiting up to 5 minutes, and the zalo-connect one was cut off
+  and left the plugin missing a dependency. It now reinstalls only on a real consent error; when the gateway
+  did not answer, the next start confirms consent (measured on a real install on C:\bot, 19/10/2026).
+- 🔧 **The .cmd files call the node and openclaw actually installed** (nvm-windows, Scoop, Volta, custom
+  npm prefix) instead of a fixed `%ProgramFiles%\nodejs` / `%APPDATA%\npm`.
+- 🔧 **"Mở giao diện quản trị" brings back the same Setup that installed it, including
+  `npx github:...` installs.** 5.18.4 only kept a Setup run from a local folder; one installed from
+  GitHub was still swapped for the npm build. Project paths with spaces are kept intact.
+- 🔧 **The "Khởi động Bot" shortcut is created when the folder or account name has Vietnamese letters**
+  (`D:\Dự án bot`, `C:\Users\Nguyễn`). Windows used to fail with "Unable to save shortcut", leaving no
+  shortcut at all, or the shortcut pointed at a mangled path (`D? án bot`). Shortcut errors are now logged
+  with their real cause.
+- 🔧 **"1 - KHOI DONG BOT" and "2 - MO GIAO DIEN" work for folders with `&`, `'`, `(`, `)`, `[`, `]`**
+  (`A&B`, `O'Brien bot`, `Bot (copy)`). A folder with `%` is refused at install time: Windows treats `%`
+  as a variable and every .cmd would break.
+- 🔧 **"Dừng Bot" and "3 - DUNG BOT" stop only that project's bot**, not every bot on the machine, and
+  "Dừng Bot" works even while a start is still in progress. The PC-control node host is matched by its
+  gateway port too: another project's node no longer counts as "already running", and deleting one
+  project no longer kills the other's PC control.
+- 🔧 **"Khởi động Bot" restarts 9Router / the node host when they died** while the gateway kept running,
+  instead of reporting "Bot đang chạy rồi" while the bot cannot answer.
+- 🔧 Old Desktop files of a project with a Vietnamese name are cleaned up (they used to stay), and another
+  project with a similar name is left alone (`C:\bot` no longer claims `C:\bot2`'s files). A project at
+  a drive root (`D:\`) gets its shortcut.
+- 🔧 **Restarting from the dashboard brings PC control back too** (it died after every restart while the
+  switch still said ON). A gateway that cannot be stopped is reported instead of a false "restarted".
+- 🔧 **Updating OpenClaw stops the gateway before npm runs**, avoiding EPERM/EBUSY on files in use; a
+  failed update brings the bot back on the old version.
+- 🔧 **Deleting a project stops its bot first** (gateway, 9Router, node host), so the folder can be removed
+  and the bot stops answering. Only that project's processes are touched.
+- 🔧 `doctor --fix` and skill/plugin installs use the real state dir instead of the junction OpenClaw
+  2026.8+ refuses to write through.
+
+**Safety**
+- 🔒 **Other web pages can no longer drive Setup.** The API has no login, so any page open in the browser
+  could POST to `127.0.0.1:51789` (delete a project, turn on PC control, install skills...), and a
+  DNS-rebinding domain could even read the token. Setup now accepts only an IP, `localhost` or the host it
+  was started with as Host, and state-changing requests must come from the Setup page itself. Behind a
+  reverse proxy with a domain, set `OPENCLAW_SETUP_ALLOWED_HOSTS=your.domain`.
+- 🔒 **"Delete project" cannot delete the user profile.** The old guard compared strings case-sensitively,
+  so `c:\users\<name>` (which holds `.openclaw\openclaw.json` since OpenClaw 2026.8) slipped through. It
+  now compares real paths case-insensitively and refuses any parent of the profile.
+- 🔒 **Clicking "Install" again on a folder that has bots no longer wipes its config** (every bot, channel
+  login and the gateway token). Setup refuses and points to the alternatives; a half-finished install can
+  still be retried, with a `.bak-reinstall-<time>` backup. A double click no longer runs two installs.
+- 🔧 **A new Docker install is refused by the server too** (only the UI tile was disabled; a stale cached
+  page could still create a broken install). Existing Docker projects are still managed and can move to
+  native.
+- 🔧 Setup no longer crashes when the browser requests a path that is a directory (e.g. `/%2e%2f`).
+- 🔧 Telegram tokens and skill names are validated before they reach a shell command.
+
+**Bots**
+- 🔒 **Deleting the bot that owns heartbeat/system/talk no longer breaks the config** and takes every bot
+  down: ownership moves to the next bot, and the config is validated before the workspace is removed. The
+  startup script also repairs owners pointing at deleted bots, and does not set
+  `agents.ownership=explicit` next to a legacy `default: true` (OpenClaw 2026.9 rejects that pair).
+- 🔧 **A second Telegram bot no longer deletes the first bot's token** in older configs without `accountId`.
+- 🔧 **One Zalo Bot API bot per project** - a second one silently took over the token and the first bot
+  answered on the second bot's account.
+- 🔧 Deleting a Zalo personal bot also removes its Zalo account from the config.
+- 🔧 **Valid bot ids**: Vietnamese names become plain ids ("Đức Trợ Lý" → `duc-tro-ly`, it used to be `-c`,
+  which OpenClaw rejects); the id field's pattern is really checked; `default` is reserved; bots whose id
+  starts with `_` or `-` can be deleted.
+- 🔧 Editing a bot no longer drops its PC-control instructions and granted folders.
+- 🔧 A workspace the owner moved elsewhere (e.g. `D:\shop`) is no longer pulled back to the default.
+- 🔧 The scheduler skill names each bot's own channel (Telegram, Zalo Bot API, Messenger - it was always
+  Zalo personal) and the right time zone when enabled from the dashboard.
+- 🔧 Creating a Telegram bot on a native install no longer runs Docker commands and restarts twice.
+- 🔧 The bot list reads name and role from IDENTITY.md (the "Tên"/"Vai trò" labels were mis-encoded).
+- 🔧 zalo-mod gets the name of the bot bound to the Zalo personal account, not the first bot in the list.
+
+**zalo-connect patch (v3, upgrades itself from v2 at the next start)**
+- 🔧 **Answering the bot's question ("1", "2"...) after sending photos works again.** The old patch
+  appended "[Kèm lại N ảnh]" to the answer, so it matched no option and the pending question was dropped.
+- 🔧 **In a group, calling the bot by name ("Jarvis ơi xuất excel") gets the photos too**, like an @tag.
+- 🔧 A group message that does not address the bot, sent right after a photo burst, no longer uses it up.
+- 🔧 **Every** installed copy of zalo-connect is patched (OpenClaw 2026.9 can keep several and runs the
+  newest), not just the first one found.
+- 🔧 The patch applies only when the plugin has every name the injected code uses; the syntax check
+  really checks now (it could pass broken output); the file is replaced atomically, never left truncated.
+- 🔧 Photos nobody asked about are dropped from memory after 10 minutes; deliberately suppressed text is
+  no longer "retried".
+
+**Dashboard**
+- 🔧 Picking a project folder with a Vietnamese name no longer garbles it.
+- 🔧 Saving the 9Router API key shows "Saved" and reloads the status; install errors are shown.
+- 🔧 The default install path is `C:\openclaw-setup` (Windows) or the real home (macOS/Linux), no longer
+  `E:\bot` / `/home/you`.
+- 🔧 A bad `--port` or a `--host` that is not on this machine fails clearly instead of probing all 65536
+  ports and crashing.
 
 
 ## [5.18.4] - 2026-10-17

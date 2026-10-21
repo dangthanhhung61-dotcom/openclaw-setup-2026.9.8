@@ -1,7 +1,7 @@
 import http from 'http';
 import fs, { createReadStream, existsSync, readFileSync, promises as fsp } from 'fs';
 import { createRequire } from 'module';
-import { basename, dirname, extname, isAbsolute, join, normalize, resolve } from 'path';
+import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, execFile, execFileSync } from 'child_process';
 import os from 'os';
@@ -13,10 +13,10 @@ function loadSharedModule(modulePath, globalName) {
   if (loaded && Object.keys(loaded).length > 0) return loaded;
   return globalThis[globalName] || loaded || {};
 }
-const { buildWorkspaceFileMap, buildCronjobSkillMd, buildInfographicGeneratorSkillMd, buildInfographicGeneratorJs, buildFileSendSteps, buildSecurityRules, buildWindowsExecNotes, buildWindowsExecNotesBase, buildWindowsPythonNote, upgradeCronjobSkillMd } = loadSharedModule('../setup/shared/workspace-gen.js', '__openclawWorkspace');
+const { buildWorkspaceFileMap, buildCronjobSkillMd, buildInfographicGeneratorSkillMd, buildInfographicGeneratorJs, buildFileSendSteps, buildSecurityRules, buildWindowsExecNotes, buildWindowsExecNotesBase, buildWindowsPythonNote, upgradeCronjobSkillMd, deliveryChannelFor } = loadSharedModule('../setup/shared/workspace-gen.js', '__openclawWorkspace');
 const { buildOpenclawJson, buildEnvFileContent, buildExecApprovalsJson, buildZaloConnectChannelConfig } = loadSharedModule('../setup/shared/bot-config-gen.js', '__openclawBotConfig');
 const { buildDockerArtifacts, contextDefaultsScript } = loadSharedModule('../setup/shared/docker-gen.js', '__openclawDockerGen');
-const { patchZaloConnectSource } = loadSharedModule('../setup/shared/zalo-connect-patch.js', '__openclawZaloConnectPatch');
+const { patchZaloConnectSource, hasOlderZaloConnectPatch } = loadSharedModule('../setup/shared/zalo-connect-patch.js', '__openclawZaloConnectPatch');
 const { buildWindowsLaunchers, buildWindowsShortcutSpecs } = loadSharedModule('../setup/shared/windows-launcher-gen.js', '__openclawWindowsLaunchers');
 const { OPENCLAW_NPM_SPEC, NINE_ROUTER_NPM_SPEC, ZALO_CHANNEL_ID, ZALO_PLUGIN_ID, ZALO_CONNECT_VERSION, ZALO_CONNECT_PLUGIN_SPEC, build9RouterProviderConfig, get9RouterBaseUrl } = loadSharedModule('../setup/shared/common-gen.js', '__openclawCommon');
 const dataExport = loadSharedModule('../setup/data/index.js', '__openclawData');
@@ -756,6 +756,21 @@ function needsWindowsShell(bin) {
   return process.platform === 'win32' && /\.(cmd|bat)"?$/i.test(String(bin || ''));
 }
 
+/**
+ * Argv for spawn(..., { shell: true }) on Windows. Node hands cmd.exe the arguments joined by plain
+ * spaces, so one holding a space ("%ProgramFiles%\Docker\Docker\Docker Desktop.exe", a path under
+ * "D:\bo cai") was split in two and an empty one ('' - the `start` title) vanished. Quote those;
+ * an argument the caller already quoted is left as it is.
+ */
+function winShellArgs(args) {
+  return args.map((a) => {
+    const s = String(a);
+    if (s === '') return '""';
+    if (/^".*"$/.test(s) || !/[\s&|<>^()]/.test(s)) return s;
+    return `"${s.replace(/"/g, '\\"')}"`;
+  });
+}
+
 function resolveBinPath(cmd) {
   if (!cmd || cmd.includes('/') || cmd.includes('\\')) return cmd;
   const names = process.platform === 'win32' ? [`${cmd}.cmd`, `${cmd}.exe`, cmd] : [cmd];
@@ -849,7 +864,7 @@ function run(cmd, args, opts = {}) {
     const shell = process.platform === 'win32';
     const rawBin = resolveBinPath(cmd);
     const bin = shell && rawBin.includes(' ') && !rawBin.startsWith('"') ? `"${rawBin}"` : rawBin;
-    const child = spawn(bin, args, { cwd: opts.cwd, shell, env: binEnv(rawBin, opts.env) });
+    const child = spawn(bin, shell ? winShellArgs(args) : args, { cwd: opts.cwd, shell, env: binEnv(rawBin, opts.env) });
     let stdout = '';
     let resolved = false;
     child.stdout.on('data', (d) => {
@@ -1067,7 +1082,7 @@ function runCapture(cmd, args, opts = {}) {
     const rawBin = resolveBinPath(cmd);
     const shell = needsWindowsShell(rawBin) || (opts.shell ?? process.platform === 'win32');
     const bin = shell && rawBin.includes(' ') && !rawBin.startsWith('"') ? `"${rawBin}"` : rawBin;
-    const child = spawn(bin, args, {
+    const child = spawn(bin, shell && process.platform === 'win32' ? winShellArgs(args) : args, {
       cwd: opts.cwd,
       shell,
       windowsHide: opts.windowsHide ?? true,
@@ -1111,7 +1126,9 @@ function safeJoin(root, name) {
   const clean = normalize(String(name || '')).replace(/^([/\\])+/, '');
   if (!clean || clean.includes('..')) throw httpError(400, 'Invalid file path');
   const full = resolve(root, clean);
-  if (!full.startsWith(resolve(root))) throw httpError(403, 'Path escapes project');
+  // With the separator: "C:\bot2\x" starts with "C:\bot" too.
+  const base = resolve(root);
+  if (full !== base && !full.startsWith(base.endsWith(sep) ? base : base + sep)) throw httpError(403, 'Path escapes project');
   return full;
 }
 
@@ -1147,10 +1164,15 @@ async function readEnvFile(file) {
 }
 
 function openclawProjectEnv(projectDir) {
+  // The REAL state dir, as nativeEnv does: on >=2026.8 <project>\.openclaw is a link to ~/.openclaw
+  // and fs-safe refuses to write through it - doctor --fix (the only cure for 2026.9's "Legacy
+  // workspace ... requires migration" boot block) and the skill/plugin installs ran with the link.
+  let home = join(projectDir, '.openclaw');
+  try { home = fs.realpathSync(home); } catch {}
   return {
     ...process.env,
-    OPENCLAW_HOME: join(projectDir, '.openclaw'),
-    OPENCLAW_STATE_DIR: join(projectDir, '.openclaw'),
+    OPENCLAW_HOME: home,
+    OPENCLAW_STATE_DIR: home,
   };
 }
 
@@ -1446,9 +1468,19 @@ async function migrateNativePaths(projectDir) {
   // to write through a linked directory, so dreaming then failed every night while its cron still
   // reported "ok" (win C:\bot 18/10/2026).
   const wsRoot = nativeStateRoot(projectDir);
+  const projState = join(projectDir, '.openclaw');
+  const fold = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
   let changed = false;
   const fix = (obj) => {
     if (!obj || typeof obj.workspace !== 'string' || !obj.workspace) return;
+    // Only paths this setup wrote: relative, container, or through the project's own .openclaw.
+    // A deliberate absolute path elsewhere (a workspace the owner moved to D:\shop, or nested under
+    // the state dir) that exists is left alone - flattening it to <state>\<basename> on every sync
+    // silently switched the bot to an empty folder.
+    const ws = obj.workspace;
+    const container = /^\/(home\/node|root)\/project\//.test(ws);
+    const viaProject = fold(resolve(ws)).startsWith(fold(projState) + sep);
+    if (isAbsolute(ws) && !container && !viaProject && existsSync(ws)) return;
     const base = basename(obj.workspace.replace(/[\\/]+$/, ''));
     if (!base || base === '.' || base === '.openclaw') return;
     const abs = join(wsRoot, base);
@@ -1547,6 +1579,16 @@ async function migrateContainerPaths(projectDir) {
   }
 }
 
+/**
+ * Agent id from a name or a typed id, the way OpenClaw normalises one: accents folded ("Đức" → "duc"),
+ * only [a-z0-9_-], no leading/trailing "-", at most 64 chars. The old replace turned "Đức" into "-c",
+ * which OpenClaw rejects ("agents.entries.-c: Invalid key in record"). '' when nothing usable is left.
+ */
+function agentIdSlug(name) {
+  return String(name || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd')
+    .toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|-+$/g, '').slice(0, 64).replace(/-+$/, '');
+}
+
 function uniqueSlug(base, used) {
   let out = base;
   let i = 2;
@@ -1568,9 +1610,11 @@ function parseIdentityFields(content = '') {
   const out = {};
   const lines = String(content || '').split(/\r?\n/);
   for (const line of lines) {
-    const m = line.match(/^\s*-\s*\*\*(?:TÃªn|Name)\s*:\*\*\s*(.+?)\s*$/i);
+    // "Tên" / "Vai trò" as the generator writes them. These used to be their UTF-8 bytes read as
+    // Latin-1 ("TÃªn"), which never matched, so the bot list never showed IDENTITY.md's name/role.
+    const m = line.match(/^\s*-\s*\*\*(?:Tên|TÃªn|Name)\s*:\*\*\s*(.+?)\s*$/i);
     if (m) out.name = m[1].trim();
-    const r = line.match(/^\s*-\s*\*\*(?:Vai trÃ²|Role)\s*:\*\*\s*(.+?)\s*$/i);
+    const r = line.match(/^\s*-\s*\*\*(?:Vai trò|Vai trÃ²|Role)\s*:\*\*\s*(.+?)\s*$/i);
     if (r) out.role = r[1].trim();
   }
   return out;
@@ -1817,7 +1861,11 @@ function ensureZaloModPluginConfig(entry, cfg) {
   // Seed the default bot's identity under bots.default (per-bot shape). zalo-mod
   // treats bots.<profile> as the canonical source - do NOT write legacy top-level
   // botName/zaloDisplayNames (they get stripped by the plugin's normalizer anyway).
-  const firstAgentName = cfg.agents?.list?.[0]?.name;
+  // The agent behind Zalo personal account `default` - not simply list[0], which can be a Telegram
+  // bot or the materialised `main`, and then zalo-mod matched group mentions against the wrong name.
+  const list = cfg.agents?.list || [];
+  const zaloDefaultAgentId = (cfg.bindings || []).find((b) => b.match?.channel === 'zalo-connect' && (b.match?.accountId || 'default') === 'default')?.agentId;
+  const firstAgentName = (list.find((a) => a?.id === zaloDefaultAgentId) || list[0])?.name;
   if (firstAgentName) {
     entry.config.bots = entry.config.bots || {};
     const def = entry.config.bots.default = entry.config.bots.default || {};
@@ -1930,14 +1978,28 @@ async function create9RouterApiKeyNative(projectDir, keyName = 'openclaw-bot') {
   const client = globalNodeModulesDirs().map((d) => join(d, '9router', 'src', 'cli', 'api', 'client.js')).find((p) => existsSync(p));
   if (!client) return '';
   const port = Number((readNativeMeta(projectDir) || {}).routerPort || state.routerPort || NATIVE_DEFAULT_ROUTER_PORT);
+  // The install calls this 8 s after starting 9Router, and one attempt was all it got: on a fresh
+  // Windows install (C:\bot, 19/10/2026) that attempt came back empty, nothing said why, and the
+  // config kept `sk-no-key` - the same request a few minutes later worked at once. Wait for the
+  // port, then retry; each attempt is a new process, so it re-reads the cli-secret 9Router writes.
+  for (let i = 0; i < 30 && (await portStatus(port)) !== 'online'; i++) await new Promise((r) => setTimeout(r, 1000));
   if ((await portStatus(port)) !== 'online') return '';
   // client.js reads DATA_DIR at load time for the machine-id + cli-secret its auth header is built
   // from, so it must match the DATA_DIR start-9router.cmd runs the router with.
-  const script = `const a=require(${JSON.stringify(client)});a.configure({port:${port}});a.createApiKey(${JSON.stringify(keyName)}).then((r)=>process.stdout.write(String(r&&r.data&&r.data.key||''))).catch(()=>process.exit(1));`;
-  const out = await runCapture(process.execPath, ['-e', script], { shell: false, timeout: 20000, env: { DATA_DIR: join(projectDir, '.9router') } });
-  const key = out.code === 0 ? String(out.stdout || '').trim() : '';
-  if (key) sendLog('[native] Đã tạo API key cho 9Router (trước đây phải mở trang 9Router thì mới có key).');
-  return key;
+  const script = `const a=require(${JSON.stringify(client)});a.configure({port:${port}});a.createApiKey(${JSON.stringify(keyName)}).then((r)=>{const k=r&&r.data&&r.data.key;if(k)process.stdout.write(String(k));else{const e=r&&(r.error||r.message);process.stderr.write(e?(typeof e==='string'?e:JSON.stringify(e)):'no key in response');process.exit(1);}}).catch((e)=>{process.stderr.write(String(e&&e.message||e));process.exit(1);});`;
+  let reason = '';
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const out = await runCapture(process.execPath, ['-e', script], { shell: false, timeout: 20000, env: { DATA_DIR: join(projectDir, '.9router') } });
+    const key = out.code === 0 ? String(out.stdout || '').trim() : '';
+    if (key) {
+      sendLog('[native] Đã tạo API key cho 9Router (trước đây phải mở trang 9Router thì mới có key).');
+      return key;
+    }
+    reason = String(out.stderr || '').trim().slice(0, 160) || `exit ${out.code}`;
+    if (attempt < 5) await new Promise((r) => setTimeout(r, 3000));
+  }
+  sendLog(`[native] Chưa tạo được API key cho 9Router (${reason}) - Setup sẽ thử lại ở lần khởi động bot sau.`);
+  return '';
 }
 
 /**
@@ -2136,13 +2198,18 @@ function validateOpenclawConfig(cfg) {
     }
   }
 
-  // Self-healing: Garbage collect any orphaned telegram accounts that are no longer bound to any active agent
+  // Self-healing: garbage-collect Telegram accounts left behind by DELETED bots. Only those: an
+  // unbound account is still live for OpenClaw (a binding without accountId, or no binding at all,
+  // routes the `default` account), so the old "not named in any binding" rule deleted the first
+  // bot's token of an older/wizard project the moment a second Telegram bot was added. Accounts are
+  // keyed `default` or by agent id, so "orphaned" = not `default`, unbound, and no such agent.
   if (cfg.channels?.telegram?.accounts) {
     const boundAccountIds = new Set(
-      (cfg.bindings || []).map((b) => b.match?.accountId).filter(Boolean)
+      (cfg.bindings || []).filter((b) => b.match?.channel === 'telegram').map((b) => b.match?.accountId || 'default')
     );
+    const agentIds = new Set(cfg.agents.list.map((a) => a.id));
     for (const accId of Object.keys(cfg.channels.telegram.accounts)) {
-      if (!boundAccountIds.has(accId)) {
+      if (accId !== 'default' && !boundAccountIds.has(accId) && !agentIds.has(accId)) {
         delete cfg.channels.telegram.accounts[accId];
       }
     }
@@ -2196,22 +2263,26 @@ function bindingChannelId(channel = '') {
 function isPhantomMainAgent(agent, projectDir, agentCount) {
   if (!agent || agent.id !== 'main' || agentCount < 2) return false;
   if (!agent.workspace) return true;
-  return !existsSync(join(projectDir, agent.workspace));
+  // resolve, not join: a native workspace is an absolute host path, and join("C:\bot", "C:\Users\…")
+  // glues the two together - a real bot named `main` was then hidden as the phantom default.
+  const ws = String(agent.workspace).replace(/^\/(home\/node|root)\/project\//, '');
+  return !existsSync(resolve(projectDir, ws));
 }
 
-// Khai chủ cho roster nhiều agent NGAY lúc ghi bot, không đợi lần khởi động lại.
+// Declare the owners of a multi-agent roster RIGHT when a bot is written, not at the next restart.
 //
-// Bot ĐẦU TIÊN của project mới cũng rơi vào đây: gateway boot với danh sách rỗng nên OpenClaw tự
-// materialise `main`, thêm bot là thành main + bot. OpenClaw ≥2026.8 từ chối roster đó khi thiếu
-// `agents.ownership`: "config reload skipped (invalid config): agents.ownership: multi-agent rosters
-// require agents.ownership=\"explicit\"…", rồi "Legacy ambient operations have no system-agent owner"
-// - bot vừa tạo không được nạp cho tới lần khởi động sau (đo trên win C:\bot, 17/10/2026, 11:40).
-// contextDefaultsScript chỉ vá ở lần (re)start sau. Chủ là bot THẬT đầu tiên, không phải `main` rỗng
-// (cùng lý do bot-config-gen đã ghi cho cấu hình nhiều bot); chủ đang trỏ vào `main` rỗng thì trỏ lại.
+// The FIRST bot of a new project lands here too: the gateway booted against an empty list, so
+// OpenClaw materialised `main`, and adding the bot makes main + bot. OpenClaw ≥2026.8 rejects that
+// roster without `agents.ownership` ("config reload skipped (invalid config): agents.ownership:
+// multi-agent rosters require agents.ownership=\"explicit\"…", then "Legacy ambient operations have
+// no system-agent owner") - the new bot is not loaded until the next restart. contextDefaultsScript
+// only patches on the next (re)start. The owner is the first REAL bot, not the empty `main`; an
+// owner still pointing at the empty `main` is re-pointed.
 function ensureRosterOwners(cfg, projectDir) {
   const list = cfg.agents?.list || [];
   if (list.length < 2) return;
-  const isPhantom = (id) => isPhantomMainAgent(list.find((a) => a?.id === id), projectDir, list.length);
+  // An owner id that is no longer in the roster is as wrong as the empty `main`: OpenClaw rejects it.
+  const isPhantom = (id) => !list.some((a) => a?.id === id) || isPhantomMainAgent(list.find((a) => a?.id === id), projectDir, list.length);
   const owner = (list.find((a) => a?.id && !isPhantomMainAgent(a, projectDir, list.length)) || list[0])?.id;
   if (!owner) return;
   if (!cfg.agents.ownership && !list.some((a) => a?.default === true)) cfg.agents.ownership = 'explicit';
@@ -2281,7 +2352,9 @@ async function deleteBotInProject(projectDir, agentId) {
   // against slugify() rejected every real id with `_` or a trailing `-` - Telegram bots are named
   // after their @username (ngao_ngaooo_bot, woof-woof-), so 7 of 11 bots on win_kha could not be
   // deleted (08/10/2026). rmInside() below still refuses any path that escapes the project.
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(String(agentId || ''))) throw httpError(400, 'Invalid bot id');
+  // Leading `_` (valid in OpenClaw) or `-` (what older builds made of accented names) must be
+  // deletable too - still no dots, slashes or spaces.
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(agentId || ''))) throw httpError(400, 'Invalid bot id');
   const openclawHome = join(projectDir, '.openclaw');
   const cfgPath = join(openclawHome, 'openclaw.json');
   if (!existsSync(cfgPath)) throw httpError(404, 'openclaw.json not found');
@@ -2300,8 +2373,29 @@ async function deleteBotInProject(projectDir, agentId) {
   for (const binding of removedBindings) {
     const accountId = binding.match?.accountId;
     if (binding.match?.channel === 'telegram' && accountId && cfg.channels?.telegram?.accounts) delete cfg.channels.telegram.accounts[accountId];
+    // Zalo personal too: left in place (enabled), the plugin kept listening on the deleted bot's
+    // number with no binding, so its messages went to whichever agent is the default.
+    if (binding.match?.channel === 'zalo-connect' && accountId && cfg.channels?.['zalo-connect']?.accounts) delete cfg.channels['zalo-connect'].accounts[accountId];
   }
   if (cfg.channels?.telegram?.accounts?.[agentId]) delete cfg.channels.telegram.accounts[agentId];
+
+  // Owners that pointed at the deleted bot. OpenClaw 2026.9 rejects the whole config over them
+  // ("Unknown agent id ... (not in agents.entries)" on heartbeat / systemAgent / talk), the restart
+  // that follows then fails and EVERY bot in the project goes down - and nothing re-points them
+  // (contextDefaultsScript only fills missing ones). Hand them to the next real bot.
+  {
+    const left = cfg.agents.list;
+    const nextOwner = (left.find((a) => a?.id && !isPhantomMainAgent(a, projectDir, left.length)) || left[0])?.id;
+    const d = cfg.agents.defaults || {};
+    for (const key of ['heartbeat', 'systemAgent']) {
+      if (d[key]?.agentId === agentId) {
+        if (nextOwner) d[key].agentId = nextOwner; else delete d[key].agentId;
+      }
+    }
+    if (cfg.talk?.agentId === agentId) {
+      if (nextOwner) cfg.talk.agentId = nextOwner; else delete cfg.talk.agentId;
+    }
+  }
 
   // Drop any channel orphaned by this deletion - no binding references it and it has no accounts
   // (e.g. a Telegram channel whose only bot was just removed). An enabled channel with no account
@@ -2316,6 +2410,9 @@ async function deleteBotInProject(projectDir, agentId) {
 
   if (existsSync(cfgPath)) await fsp.copyFile(cfgPath, `${cfgPath}.bak`);
   await fsp.writeFile(cfgPath, JSON.stringify(cfg, null, 2), 'utf8');
+  // Same check add/edit run: a config openclaw rejects is rolled back BEFORE the workspace is gone.
+  const rejectedDelete = await verifyConfigOrRollback(projectDir).catch(() => null);
+  if (rejectedDelete) throw httpError(500, rejectedDelete);
   await syncExecApprovals(projectDir, cfg);
 
   // Also clear bot tokens in .env files if deleting the primary bot
@@ -2478,6 +2575,9 @@ async function createBotInProject(projectDir, body = {}, runtime = {}) {
   if (!['telegram', 'zalo-personal', 'zalo-bot', 'fb-messenger'].includes(channel)) throw httpError(400, 'Unsupported channel');
   const token = String(body.token || '').trim();
   if ((channel === 'telegram' || channel === 'zalo-bot') && !token) throw httpError(400, 'Token is required for this channel');
+  // A Telegram token is `<digits>:<letters/digits/_->`. Anything else cannot work, and it is pasted
+  // into `sh -lc '... --token "<token>"'` for docker projects - a stray quote broke out of it.
+  if (channel === 'telegram' && !/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw httpError(400, 'Token Telegram không đúng định dạng (dạng 123456789:ABC...).');
   const fbPageId = String(body.pageId || '').trim();
   const fbPageToken = String(body.pageAccessToken || '').trim();
   const fbAppSecret = String(body.appSecret || '').trim();
@@ -2517,10 +2617,13 @@ async function createBotInProject(projectDir, body = {}, runtime = {}) {
 
   const used = new Set(cfg.agents.list.map((a) => a.id));
   const botName = uniqueDisplayName(requestedBotName, new Set(cfg.agents.list.map((a) => a.name || a.id)));
-  let agentId = body.agentId ? String(body.agentId).trim().toLowerCase().replace(/[^a-z0-9-_]+/g, '-') : '';
+  let agentId = body.agentId ? agentIdSlug(body.agentId) : '';
   if (!agentId) {
-    agentId = uniqueSlug(slugify(botName), used);
+    // `default` is reserved: it is also the first account id of every channel, and a bot called
+    // `default` took over the first Telegram bot's account.
+    agentId = uniqueSlug(agentIdSlug(botName) || 'bot', new Set([...used, 'default']));
   } else {
+    if (agentId === 'default') throw httpError(400, 'Bot ID "default" được dành riêng - vui lòng chọn ID khác.');
     if (used.has(agentId)) {
       throw httpError(400, `Bot ID "${agentId}" đã tồn tại. Vui lòng chọn ID khác.`);
     }
@@ -2582,9 +2685,15 @@ async function createBotInProject(projectDir, body = {}, runtime = {}) {
     await appendEnvValue(projectDir, 'FB_MESSENGER_VERIFY_TOKEN', fbVerifyToken);
     if (fbAppId) await appendEnvValue(projectDir, 'FB_MESSENGER_APP_ID', fbAppId);
   } else {
+    // channels.zalo holds ONE bot token. A second Zalo Bot API bot used to overwrite it while the
+    // binding stayed on the first bot: the first bot then answered on the second bot's Zalo account
+    // and its own went dead, and the new bot had no binding at all. Refuse instead.
+    const zaloApiOwner = cfg.bindings.find((b) => b.match?.channel === 'zalo')?.agentId;
+    if (zaloApiOwner) {
+      throw httpError(400, `Project này đã có bot Zalo Bot API ("${zaloApiOwner}"). Mỗi project chỉ chạy được một bot Zalo Bot API - hãy sửa bot đó, hoặc tạo bot này trong project khác.`);
+    }
     ensureZaloApiChannel(cfg, token);
-    const hasZaloApiBinding = cfg.bindings.some((b) => b.match?.channel === 'zalo');
-    if (!hasZaloApiBinding) cfg.bindings.push({ agentId, match: { channel: 'zalo' } });
+    cfg.bindings.push({ agentId, match: { channel: 'zalo' } });
     await appendEnvValue(projectDir, 'ZALO_BOT_TOKEN', token);
   }
 
@@ -2633,10 +2742,9 @@ async function createBotInProject(projectDir, body = {}, runtime = {}) {
   // the token); don't pollute other channels' bot-meta.json with an empty appId.
   if (channel === 'fb-messenger') botMeta.appId = fbAppId;
   await writeBotMeta(projectDir, workspaceDir, botMeta);
-  // PC control is granted per PROJECT, so a bot added afterwards must get the same instructions -
-  // its TOOLS.md was just written fresh and would otherwise have no host-control block at all.
-  const hostCfg = await readHostControlConfig(projectDir).catch(() => null);
-  if (hostCfg?.enabled) await writeHostControlAccess(projectDir, hostCfg).catch(() => {});
+  // PC control and granted folders are per PROJECT, so a bot added afterwards must get the same
+  // instructions - its TOOLS.md/AGENTS.md were just written fresh.
+  await reapplyProjectGrants(projectDir);
 
   return { ok: true, agentId, accountId, channel, workspace: `.openclaw/${workspaceDir}`, warning };
 }
@@ -2819,6 +2927,9 @@ async function updateBotInProject(projectDir, agentId, body = {}, runtime = {}) 
   const botMeta = { persona, userName, userDescription: userDesc, emoji, role: botDesc };
   if (channel === 'fb-messenger') botMeta.appId = String(body.appId || '').trim();
   await writeBotMeta(projectDir, workspaceDir, botMeta);
+  // TOOLS.md (always) and AGENTS.md (on a name/role change) were regenerated above, without the
+  // PC-control and granted-folder blocks - the bot forgot both after any edit.
+  await reapplyProjectGrants(projectDir);
 
   return { ok: true, agentId, channel, workspace: `.openclaw/${workspaceDir}` };
 }
@@ -3681,22 +3792,14 @@ async function runOpenclawDoctorFixIfNeeded(projectDir) {
 }
 
 /**
- * Restart the gateway on Windows the way the double-click launcher starts it.
- *
- * Stops the running gateway process, then relaunches `gateway-start.cmd` through `run-hidden.vbs`
- * - the exact pair "1 - KHOI DONG BOT" uses, so the gateway lands in the operator's own desktop
- * session with no console window. Returns true only once the port answers again: a restart that
- * silently left the bot down is the failure this whole function exists to avoid.
- */
-/**
  * Windows runs the gateway from gateway-start.cmd ONLY (windows-launcher-gen.js). On the >=2026.8 layout
  * (prepareNativeStateHome moves state to ~/.openclaw) `openclaw daemon install` no longer refuses: it
  * registers an at-logon Scheduled Task (gateway.vbs -> gateway.cmd --task-supervisor), a SECOND launcher
  * for the same state dir. At every login it races the gateway "1 - KHOI DONG BOT" starts; the loser waits
  * 300s on the state lease and dies ("failed to acquire gateway state ownership"), or exits at once
- * ("Another gateway (pid N) already owns this state directory"). Measured on win C:\bot, 17/10/2026
- * 12:35 and 13:07. Remove the registration (task + the Startup-folder entry OpenClaw falls back to when
- * schtasks is denied); a gateway it already started is handled by the caller.
+ * ("Another gateway (pid N) already owns this state directory"). Remove the registration (task + the
+ * Startup-folder entry OpenClaw falls back to when schtasks is denied); a gateway it already started is
+ * handled by the caller.
  */
 async function removeWindowsGatewayTask(projectDir) {
   if (process.platform !== 'win32') return false;
@@ -3721,17 +3824,30 @@ async function removeWindowsGatewayTask(projectDir) {
   return removed;
 }
 
-/** Kill the hidden Windows gateway (the launcher's plain node process) and wait for its port. */
+/**
+ * Kill the hidden Windows gateway (the launcher's plain node process) for THIS port - the old
+ * '*gateway --port*' pattern took down every project's gateway on the machine - and wait for the
+ * port. Returns false when the port is still held afterwards (e.g. a gateway started elevated).
+ */
 async function stopWindowsGateway(port) {
   await runCapture('powershell', ['-NoProfile', '-Command',
-    "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*openclaw*gateway --port*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }"],
+    `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'openclaw.*gateway --port ${Number(port)}(\\s|$)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }`],
     { shell: false, timeout: 20000 }).catch(() => {});
   // Give the socket time to be released, or the new gateway loses the port to its own corpse.
   for (let i = 0; i < 10 && (await portStatus(port)) === 'online'; i++) {
     await new Promise((r) => setTimeout(r, 1000));
   }
+  return (await portStatus(port)) !== 'online';
 }
 
+/**
+ * Restart the gateway on Windows the way the double-click launcher starts it.
+ *
+ * Stops the running gateway process, then relaunches `gateway-start.cmd` through `run-hidden.vbs`
+ * - the exact pair "1 - KHOI DONG BOT" uses, so the gateway lands in the operator's own desktop
+ * session with no console window. Returns true only once the port answers again: a restart that
+ * silently left the bot down is the failure this whole function exists to avoid.
+ */
 async function restartWindowsGateway(projectDir) {
   const vbs = join(projectDir, 'run-hidden.vbs');
   const cmd = join(projectDir, 'gateway-start.cmd');
@@ -3753,12 +3869,24 @@ async function restartWindowsGateway(projectDir) {
 
   const meta = readNativeMeta(projectDir) || {};
   const port = meta.gatewayPort || state.gatewayPort || NATIVE_DEFAULT_GATEWAY_PORT;
-  await stopWindowsGateway(port);
+  if (!(await stopWindowsGateway(port))) {
+    // Otherwise the poll below sees the OLD gateway on the port and reports a restart that never
+    // happened, with the new config not applied.
+    sendLog(`[native] Không dừng được gateway cũ (cổng ${port} vẫn mở - có thể nó chạy bằng quyền Administrator). Hãy bấm "3 - DUNG BOT" rồi "1 - KHOI DONG BOT".`);
+    return false;
+  }
   startDetached('wscript.exe', [vbs, cmd], { cwd: projectDir });
   for (let i = 0; i < 45; i++) {
     await new Promise((r) => setTimeout(r, 2000));
     if ((await portStatus(port)) === 'online') {
       sendLog(`[native] Bot đã khởi động lại (cổng ${port}).`);
+      // The node host (PC control) exits when its gateway goes away ("reconnect paused ... exiting
+      // for supervisor restart") and only "1 - KHOI DONG BOT" ever started it again - so every
+      // restart from the dashboard (skill/plugin install, Zalo login, config save) left PC control
+      // dead while the switch still showed ON. .openclaw-node exists only when it was turned on.
+      if (existsSync(join(projectDir, '.openclaw-node', 'openclaw.json'))) {
+        await startNodeHost(projectDir, port).catch((e) => sendLog(`[computer-use] không bật lại được node điều khiển: ${e.message}`));
+      }
       return true;
     }
   }
@@ -4156,17 +4284,50 @@ function nativePluginDir(projectDir, id) {
  */
 async function patchNativeZaloConnect(projectDir) {
   if (!isNativeProject(projectDir) || typeof patchZaloConnectSource !== 'function') return false;
-  const dir = nativePluginDir(projectDir, ZALO_PLUGIN_ID);
-  const entry = dir ? join(dir, 'dist', 'index.js') : '';
-  if (!entry || !existsSync(entry)) return false;
-  const src = await fsp.readFile(entry, 'utf8');
+  let changed = false;
+  for (const entry of nativeZaloConnectEntries(projectDir)) {
+    if (await patchZaloConnectEntry(entry)) changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Every installed copy of zalo-connect's dist/index.js. nativePluginDir() stops at the first one, but
+ * OpenClaw 2026.9 can keep several (an update lands in a new `npm/projects/<pkg>-<hash>__openclaw-
+ * generation__…` dir, and a legacy extensions/ copy may linger) and runs the newest: patching only
+ * the first left the running copy unpatched without a word. The patch is idempotent, so patch all.
+ */
+function nativeZaloConnectEntries(projectDir) {
+  const state = join(projectDir, '.openclaw');
+  const names = new Set([ZALO_PLUGIN_ID, `openclaw-${ZALO_PLUGIN_ID}`, String(ZALO_CONNECT_PLUGIN_SPEC).replace(/^clawhub:/, '').replace(/@[^/@]*$/, '')]);
+  const dirs = [join(state, 'extensions', ZALO_PLUGIN_ID)];
+  const projects = join(state, 'npm', 'projects');
+  for (const d of (() => { try { return fs.readdirSync(projects); } catch { return []; } })()) {
+    for (const n of names) dirs.push(join(projects, d, 'node_modules', n));
+  }
+  return [...new Set(dirs.map((d) => join(d, 'dist', 'index.js')))].filter((f) => existsSync(f));
+}
+
+async function patchZaloConnectEntry(entry) {
+  const backup = `${entry}.bak-before-media-burst`;
+  let src = await fsp.readFile(entry, 'utf8');
+  // An older version of this patch: its anchors are gone, so re-patch the pristine build it was made
+  // from (the backup of THIS build - a plugin update replaces index.js with an unpatched one).
+  let fromBackup = false;
+  if (typeof hasOlderZaloConnectPatch === 'function' && hasOlderZaloConnectPatch(src) && existsSync(backup)) {
+    const pristine = await fsp.readFile(backup, 'utf8');
+    if (!/\[openclaw-setup local patch: /.test(pristine)) { src = pristine; fromBackup = true; }
+  }
   const res = patchZaloConnectSource(src);
   if (res.status === 'already-patched') return false;
   if (res.status !== 'patched') {
     sendLog(`[zalo-connect] Bản plugin này chưa vá được (${res.reason}) - giữ nguyên như khi cài.`);
     return false;
   }
-  const tmp = `${entry}.patch-check-${process.pid}.js`;
+  // .mjs/.cjs, not .js: for a .js file outside a "type":"module" package `node --check` reports
+  // nothing at all, so a broken result would have passed.
+  const ext = /^\s*(import|export)\s/m.test(res.out) ? 'mjs' : 'cjs';
+  const tmp = `${entry}.patch-check-${process.pid}.${ext}`;
   try {
     await fsp.writeFile(tmp, res.out, 'utf8');
     const check = await runCapture(process.execPath, ['--check', tmp], { shell: false, timeout: 60000 });
@@ -4178,9 +4339,12 @@ async function patchNativeZaloConnect(projectDir) {
     await fsp.rm(tmp, { force: true }).catch(() => {});
   }
   // The file being patched IS the pristine build of this version, so it is the backup to keep.
-  await fsp.copyFile(entry, `${entry}.bak-before-media-burst`);
-  await fsp.writeFile(entry, res.out, 'utf8');
-  sendLog('[zalo-connect] Đã vá plugin: gom ảnh gửi liên tiếp thành 1 lượt, gửi được tệp có đường dẫn Windows, ghi lỗi khi gửi tin thất bại.');
+  if (!fromBackup) await fsp.copyFile(entry, backup);
+  // Write beside it and rename over: a write that fails halfway must not leave a truncated plugin.
+  const next = `${entry}.patch-new-${process.pid}`;
+  await fsp.writeFile(next, res.out, 'utf8');
+  await fsp.rename(next, entry).catch(async (err) => { await fsp.rm(next, { force: true }).catch(() => {}); throw err; });
+  sendLog(`[zalo-connect] Đã vá plugin${fromBackup ? ' (nâng cấp bản vá cũ)' : ''}: gom ảnh gửi liên tiếp thành 1 lượt, gửi được tệp có đường dẫn Windows, ghi lỗi khi gửi tin thất bại.`);
   return true;
 }
 
@@ -4238,6 +4402,16 @@ async function ensureNativePlugins(projectDir, { restart = false } = {}) {
     const out = await ocCaptureInstall(projectDir, ['plugins', 'enable', id, '--accept-capabilities'], { timeout: 120000 });
     if (out.code === 0) { consented.push(id); continue; }
     const why = stripCliWarnings(`${out.stdout || ''}\n${out.stderr || ''}`).trim();
+    // Reinstalling only cures a plugin that has no consent / registry entry on this machine. When the
+    // call failed because the gateway did not answer (still loading the plugin just installed, or
+    // down), the reinstall fails the same way up to 300 s later - C:\bot 19/10/2026: the gateway hung
+    // after hot-loading zalo-connect, so learning-memory, duckduckgo and zalo-connect were all
+    // "reinstalled" one after another, and the zalo-connect one, cut off mid-copy, left the plugin
+    // without its dependencies. Leave it to the next start (consent is re-checked every start).
+    if (out.code === 124 || /gateway not reachable|ETIMEDOUT|ECONNREFUSED|ECONNRESET|timed out|UNAVAILABLE|not ready/i.test(why)) {
+      sendLog(`[native] ${id}: chưa xác nhận được quyền vì gateway chưa trả lời - bỏ qua, sẽ thử lại ở lần khởi động sau.`);
+      continue;
+    }
     // A plugin folder lifted out of a Docker volume has no registry entry on this machine, so
     // consent alone is refused with "no authoritative package-owner metadata" - openclaw wants the
     // package reinstalled. Take the package name off the plugin's own package.json rather than
@@ -4266,10 +4440,13 @@ async function ensureNativePlugins(projectDir, { restart = false } = {}) {
 /** Fire-and-forget background process (9router has no service wrapper of its own). */
 function startDetached(cmd, args, opts = {}) {
   sendLog(`$ ${cmd} ${args.join(' ')} &`);
-  const shell = process.platform === 'win32';
   const rawBin = resolveBinPath(cmd);
+  // A shell only for .cmd/.bat shims. With shell:true Node joins argv with plain spaces, so a project
+  // under "D:\bo cai" handed wscript the script name `D:\bo` - the gateway, 9router and the node host
+  // never started and every restart waited out its timeout. wscript.exe / node.exe need no shell.
+  const shell = needsWindowsShell(rawBin);
   const bin = shell && rawBin.includes(' ') && !rawBin.startsWith('"') ? `"${rawBin}"` : rawBin;
-  const child = spawn(bin, args, {
+  const child = spawn(bin, shell ? winShellArgs(args) : args, {
     cwd: opts.cwd,
     shell,
     detached: true,
@@ -4408,6 +4585,79 @@ async function installNative9RouterUnit(projectDir, routerPort, dataDir, { resta
 }
 
 /**
+ * Copy the contents of src into the existing, empty dest, recreating links instead of following
+ * them. The state tree carries junctions (a plugin's node_modules\openclaw points at the global
+ * openclaw), and fs.cp would recreate those as symlinks - which Windows refuses without admin rights
+ * or Developer Mode (EPERM). On Windows a directory link is recreated as a junction, which needs
+ * neither. A link aimed inside the tree is re-aimed at the copy.
+ */
+async function copyTreeKeepLinks(src, dest, srcRoot = src, destRoot = dest) {
+  for (const entry of await fsp.readdir(src, { withFileTypes: true })) {
+    const from = join(src, entry.name);
+    const to = join(dest, entry.name);
+    // Windows reports every reparse point as a link - OneDrive placeholders, dedup/compressed files,
+    // WSL links - and readlink throws on those, which aborted the whole move. Copy what it points at.
+    const raw = entry.isSymbolicLink() ? await fsp.readlink(from).catch(() => null) : null;
+    if (entry.isSymbolicLink() && raw === null) {
+      const st = await fsp.stat(from);
+      if (st.isDirectory()) { await fsp.mkdir(to); await copyTreeKeepLinks(from, to, srcRoot, destRoot); }
+      else await fsp.copyFile(from, to);
+    } else if (entry.isSymbolicLink()) {
+      const abs = resolve(dirname(from), raw);
+      const inTree = relative(srcRoot, abs);
+      const inside = !isAbsolute(inTree) && inTree.split(sep)[0] !== '..';
+      // Inside the tree: aim at the copy. Outside it: the same place as before.
+      const aimed = inside ? join(destRoot, inTree) : abs;
+      if (process.platform !== 'win32') {
+        await fsp.symlink(isAbsolute(raw) || !inside ? aimed : raw, to);
+        continue;
+      }
+      // A junction needs no rights, and a dangling link still gets one. A file symlink needs admin
+      // or Developer Mode - without them, copy the file it points at instead.
+      const isFile = await fsp.stat(from).then((s) => s.isFile(), () => false);
+      if (!isFile) await fsp.symlink(aimed, to, 'junction');
+      else await fsp.symlink(aimed, to, 'file').catch((err) => { if (err?.code !== 'EPERM') throw err; return fsp.copyFile(from, to); });
+    } else if (entry.isDirectory()) {
+      await fsp.mkdir(to);
+      await copyTreeKeepLinks(from, to, srcRoot, destRoot);
+    } else if (entry.isFile()) {
+      await fsp.copyFile(from, to);
+    }
+  }
+}
+
+/**
+ * fs.rename cannot cross volumes. A project on D:\ with the account home on C:\ failed the state move
+ * with EXDEV (D:\bot, 16/10/2026): the state stayed in the project, `daemon install` then refused the
+ * non-default state dir and the install ended there. Across volumes, copy the tree instead, then park
+ * the original beside itself (same volume, so that rename works) for the caller to delete once the
+ * project link is in place. A copy that fails halfway is removed again and the original is never
+ * touched. Returns the parked path, or '' when a plain rename did the job.
+ */
+async function moveStateDir(src, dest) {
+  try {
+    await fsp.rename(src, dest);
+    return '';
+  } catch (err) {
+    if (err?.code !== 'EXDEV') throw err;
+  }
+  sendLog(`[native] ${src} và ${dest} nằm trên hai ổ đĩa khác nhau - sao chép thay vì đổi tên...`);
+  const parked = `${src}.moved-${Date.now()}`;
+  // Whatever already sits at dest fails here, before the cleanup below could remove it.
+  await fsp.mkdir(dest);
+  try {
+    await copyTreeKeepLinks(src, dest);
+    // Last: on Windows this fails while a process still holds a file in the old tree - then the copy
+    // is dropped and nothing has changed.
+    await fsp.rename(src, parked);
+  } catch (err) {
+    await fsp.rm(dest, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
+  return parked;
+}
+
+/**
  * openclaw 2026.8.x `daemon install` only manages the service when the state dir is the
  * canonical <account home>/.openclaw - a custom OPENCLAW_HOME is refused, and its fs-safe
  * layer refuses atomic writes through a symlinked state dir ("parent must be a real
@@ -4458,8 +4708,23 @@ async function prepareNativeStateHome(projectDir) {
       sendLog(`[native] parked stray state dir ${homeState} -> ${parked}`);
     }
   }
-  await fsp.rename(projState, homeState);
-  fs.symlinkSync(homeState, projState, linkType);
+  const parked = await moveStateDir(projState, homeState);
+  try {
+    fs.symlinkSync(homeState, projState, linkType);
+  } catch (err) {
+    // Without the link nothing finds this project's state any more - put the original back, and drop
+    // the copy only once it is. After a plain rename (same volume) there is no copy: move it back,
+    // or every later run stops on "đã chứa state của một project khác" with the project emptied.
+    if (parked) {
+      if (await fsp.rename(parked, projState).then(() => true, () => false)) {
+        await fsp.rm(homeState, { recursive: true, force: true }).catch(() => {});
+      }
+    } else {
+      await fsp.rename(homeState, projState).catch((e) => sendLog(`[native] không đưa được state về ${projState}: ${e.message}`));
+    }
+    throw err;
+  }
+  if (parked) await fsp.rm(parked, { recursive: true, force: true }).catch((e) => sendLog(`[native] không xoá được bản cũ ${parked}: ${e.message}`));
   sendLog(`[native] state moved to ${homeState}; ${projState} is now a symlink (openclaw >=2026.8 layout)`);
   await repointStatePaths(projectDir, homeState).catch((e) => sendLog(`[native] repoint paths skipped: ${e.message}`));
   return installEnv;
@@ -4593,8 +4858,10 @@ async function setComputerUse(projectDir, enable) {
   cfg.tools.alsoAllow = [...allow];
   await fsp.writeFile(cfgPath, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
 
+  const meta = readNativeMeta(projectDir) || {};
+  const port = meta.gatewayPort || state.gatewayPort || NATIVE_DEFAULT_GATEWAY_PORT;
   if (!enable) {
-    await stopNodeHost().catch(() => {});
+    await stopNodeHost(port).catch(() => {});
     await restartNativeRuntime(projectDir).catch(() => {});
     sendLog('[computer-use] Đã tắt: gỡ tool computer/screen, tắt plugin và dừng node điều khiển.');
     return { ok: true, enabled: false };
@@ -4608,11 +4875,9 @@ async function setComputerUse(projectDir, enable) {
   // Stop the node host FIRST. Restarting the gateway drops its socket, and on some closes the node
   // gives up with "reconnect paused ... exiting for supervisor restart" - there is no supervisor
   // here, so it would sit dead while everything else looked fine. Start it fresh afterwards.
-  await stopNodeHost().catch(() => {});
+  await stopNodeHost(port).catch(() => {});
   await restartNativeRuntime(projectDir).catch((e) => sendLog(`[computer-use] restart: ${e.message}`));
 
-  const meta = readNativeMeta(projectDir) || {};
-  const port = meta.gatewayPort || state.gatewayPort || NATIVE_DEFAULT_GATEWAY_PORT;
   // The node host cannot connect until the gateway is listening again.
   let up = false;
   for (let i = 0; i < 30; i++) {
@@ -4622,7 +4887,7 @@ async function setComputerUse(projectDir, enable) {
   if (!up) return { ok: false, error: `Bot chưa khởi động lại xong (cổng ${port}). Thử lại sau ít phút.` };
 
   await startNodeHost(projectDir, port);
-  const running = await nodeHostRunning();
+  const running = await nodeHostRunning(port);
   if (!running) return { ok: false, error: 'Đã bật quyền nhưng node điều khiển chưa chạy. Xem nhật ký để biết vì sao.' };
 
   // The node registers its capability surface a moment after the socket opens, so the pending
@@ -4706,7 +4971,7 @@ async function prepareNodeHostHome(projectDir, gatewayPort) {
 
 /** Run `openclaw node run` detached so it outlives this request but stays in this desktop session. */
 async function startNodeHost(projectDir, gatewayPort) {
-  if (await nodeHostRunning()) { sendLog('[computer-use] Node điều khiển đã chạy sẵn.'); return; }
+  if (await nodeHostRunning(gatewayPort)) { sendLog('[computer-use] Node điều khiển đã chạy sẵn.'); return; }
   const token = gatewayAuthToken(projectDir);
   if (!token) sendLog('[computer-use] Không đọc được gateway token - node có thể bị từ chối kết nối.');
   // `--no-tls`: the gateway here is plain ws:// on loopback. Without it the node tries TLS and
@@ -4751,7 +5016,7 @@ async function startNodeHost(projectDir, gatewayPort) {
   // started, until the bot says it has no permission.
   for (let i = 0; i < 15; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    if (await nodeHostRunning()) { sendLog('[computer-use] Node điều khiển đã kết nối.'); return; }
+    if (await nodeHostRunning(gatewayPort)) { sendLog('[computer-use] Node điều khiển đã kết nối.'); return; }
   }
   sendLog('[computer-use] Node điều khiển chưa lên sau 30s - kiểm tra lại bằng `openclaw node status`.');
 }
@@ -4822,23 +5087,56 @@ async function nodeHasComputerCaps(projectDir) {
   return ok;
 }
 
-async function nodeHostRunning() {
+// The node host runs `openclaw node run --host 127.0.0.1 --port <gateway port> --no-tls`. With a port,
+// match only the node of THAT gateway: on a machine with two projects, project B's node counted as
+// "already running" for project A, and deleting or updating one project killed the other's PC control.
+const nodeHostLike = (port) => (port ? `*node*run*--host*--port ${Number(port)} *` : '*node*run*--host*');
+// `[n]ode`: the pattern must not match the `sh -c` / grep running it.
+const nodeHostRe = (port) => (port ? `[n]ode run --host .* --port ${Number(port)}( |$)` : '[n]ode run --host');
+
+async function nodeHostRunning(port) {
   if (process.platform === 'win32') {
     const r = await runCapture('powershell', ['-NoProfile', '-Command',
-      "(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*node*run*--host*' } | Measure-Object).Count"], { shell: false, timeout: 8000 });
+      `(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '${nodeHostLike(port)}' } | Measure-Object).Count`], { shell: false, timeout: 8000 });
     return Number(String(r.stdout || '0').trim()) > 0;
   }
-  const r = await runCapture('sh', ['-c', "ps ax | grep -c '[n]ode run --host'"], { shell: false, timeout: 8000 });
+  const r = await runCapture('sh', ['-c', `ps ax | grep -cE '${nodeHostRe(port)}'`], { shell: false, timeout: 8000 });
   return Number(String(r.stdout || '0').trim()) > 0;
 }
 
-async function stopNodeHost() {
+async function stopNodeHost(port) {
   if (process.platform === 'win32') {
     await runCapture('powershell', ['-NoProfile', '-Command',
-      "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*node*run*--host*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }"], { shell: false, timeout: 10000 });
+      `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '${nodeHostLike(port)}' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }`], { shell: false, timeout: 10000 });
     return;
   }
-  await runCapture('sh', ['-c', "pkill -f 'node run --host' || true"], { shell: false, timeout: 10000 });
+  await runCapture('sh', ['-c', `pkill -f '${nodeHostRe(port)}' || true`], { shell: false, timeout: 10000 });
+}
+
+/**
+ * The command setup-ui.cmd ("2 - MO GIAO DIEN") runs to bring THIS Setup back, or '' for the
+ * default `npx --yes create-openclaw-bot` (the published npm build).
+ *
+ * Always calling the npm build meant a Setup started any other way was swapped for a different
+ * build at the next "Mở giao diện": its fixes vanished and its migrations ran backwards (C:\bot,
+ * 18/10/2026 - Setup installed with `npx github:<fork>`, the dashboard then came back as the npm
+ * 5.18.3 build). So:
+ *   • run from the npx cache → npx again, with the SAME spec npx was given (recorded in the cache
+ *     dir's package.json); a plain registry spec keeps the default command;
+ *   • anything else (local checkout, global npm install) → this very cli.js.
+ */
+function setupRelaunchCommand() {
+  const cliPath = resolve(__dirname, '../cli.js');
+  const npxRoot = cliPath.match(/^(.*[\\/]_npx[\\/][^\\/]+)[\\/]/)?.[1];
+  // The node running Setup now, not whatever `node` is on PATH (a portable node may not be there).
+  if (!npxRoot) return existsSync(cliPath) ? `"${process.execPath}" "${cliPath}"` : '';
+  let spec = '';
+  try { spec = String(JSON.parse(readFileSync(join(npxRoot, 'package.json'), 'utf8'))?.dependencies?.['create-openclaw-bot'] || ''); } catch {}
+  // Only a git/GitHub/URL spec needs passing on; a semver range from the registry is the default.
+  // (A local folder never gets here: node resolves the npx symlink to the real folder.) Anything
+  // that could break out of the .cmd line is refused rather than escaped.
+  if (!/^(github:|git\+|git:|https?:)/i.test(spec) || /["%&|<>^\s]/.test(spec)) return '';
+  return `npx --yes ${spec}`;
 }
 
 /**
@@ -4854,16 +5152,16 @@ async function writeWindowsLaunchers(projectDir, gatewayPort, routerPort) {
   // the account home, and the gateway must be handed the real path either way.
   let stateDir = join(projectDir, '.openclaw');
   try { stateDir = fs.realpathSync(stateDir); } catch {}
-  // setup-ui.cmd relaunches THIS Setup: npx for a run from the npx cache (it follows the published
-  // version), otherwise this very cli.js - a local checkout must not be swapped for the npm build.
-  const cliPath = resolve(__dirname, '../cli.js');
-  const setupCommand = !/[\\/]_npx[\\/]/i.test(cliPath) && existsSync(cliPath) ? `node "${cliPath}"` : '';
   const files = buildWindowsLaunchers({
     projectDir, gatewayPort, routerPort,
     setupPort: activeUiPort || 51789,
     gatewayToken: gatewayAuthToken(projectDir),
     stateDir,
-    setupCommand,
+    setupCommand: setupRelaunchCommand(),
+    // The node running Setup and the openclaw it found - not a fixed %ProgramFiles%/%APPDATA% guess
+    // that does not exist under nvm-windows, Scoop, Volta or a custom npm prefix.
+    nodePath: process.execPath,
+    openclawEntry: openclawEntryScript(),
   });
   for (const [name, content] of Object.entries(files)) {
     await fsp.writeFile(join(projectDir, name), content, 'utf8');
@@ -4897,19 +5195,32 @@ async function installWindowsShortcuts(projectDir, dirs = {}) {
   const json = JSON.stringify({ ...spec, desktopDir: dirs.desktopDir || '', startMenuDir: dirs.startMenuDir || '' });
   const script = [
     "$ErrorActionPreference = 'Stop'",
+    // Without it stderr opens with a CLIXML progress record and the logged error is all XML.
+    "$ProgressPreference = 'SilentlyContinue'",
+    'try {',
     `$spec = ConvertFrom-Json @'\n${json}\n'@`,
     '$ws = New-Object -ComObject WScript.Shell',
+    '$shell = New-Object -ComObject Shell.Application',
     "$exe = @{ wscript = (Join-Path $env:WINDIR 'System32\\wscript.exe'); notepad = (Join-Path $env:WINDIR 'System32\\notepad.exe') }",
+    // WScript.Shell is ANSI-only for the WHOLE shortcut: Save() fails in a folder with Vietnamese
+    // letters ("Bot OpenClaw (Dự án bot)", C:\Users\Nguyễn\...), and even when it saves, Arguments /
+    // WorkingDirectory / Description come out as "D? án bot". So it only creates a bare .lnk in an
+    // ASCII folder; Shell.Application's ShellLinkObject (Unicode) fills it in; then it is moved.
+    "$tmpDir = if ($env:ProgramData -and (Test-Path -LiteralPath $env:ProgramData)) { $env:ProgramData } else { $env:TEMP }",
     'function New-Lnk([string]$final, $s) {',
-    "  $tmp = Join-Path (Split-Path $final) ('tmp-' + [guid]::NewGuid().ToString('N') + '.lnk')",
+    "  $tmp = Join-Path $tmpDir ('openclaw-' + [guid]::NewGuid().ToString('N') + '.lnk')",
     '  $l = $ws.CreateShortcut($tmp)',
     '  $l.TargetPath = $exe[$s.target]',
-    '  $l.Arguments = $s.args',
-    '  $l.WorkingDirectory = $spec.projectDir',
-    '  if (Test-Path -LiteralPath $spec.icon) { $l.IconLocation = "$($spec.icon),0" }',
-    '  $l.Description = $s.desc',
     '  $l.Save()',
-    '  Move-Item -LiteralPath $tmp -Destination $final -Force',
+    '  try {',
+    '    $k = $shell.NameSpace((Split-Path $tmp)).ParseName((Split-Path $tmp -Leaf)).GetLink',
+    '    $k.Arguments = $s.args',
+    '    $k.WorkingDirectory = $spec.projectDir',
+    '    $k.Description = $s.desc',
+    '    if (Test-Path -LiteralPath $spec.icon) { $k.SetIconLocation($spec.icon, 0) }',
+    '    $k.Save()',
+    '    Move-Item -LiteralPath $tmp -Destination $final -Force',
+    '  } finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force } }',
     '}',
     "$desktop = if ($spec.desktopDir) { $spec.desktopDir } else { [Environment]::GetFolderPath('Desktop') }",
     "$programs = if ($spec.startMenuDir) { $spec.startMenuDir } else { [Environment]::GetFolderPath('Programs') }",
@@ -4929,17 +5240,25 @@ async function installWindowsShortcuts(projectDir, dirs = {}) {
     '  foreach ($n in $spec.legacy) {',
     '    $p = Join-Path $desktop $n',
     '    if (-not (Test-Path -LiteralPath $p)) { continue }',
-    '    $t = Get-Content -Raw -LiteralPath $p',
-    "    if ($t -and ($t.Contains($spec.projectDir) -or $t.Contains('title Dung bot OpenClaw'))) {",
+    // -Encoding UTF8: the old files are BOM-less UTF-8, read as ANSI a Vietnamese project dir never
+    // matched and they stayed on the Desktop. The dir must END where it appears, or C:\bot would
+    // also claim C:\bot2's / C:\bot-zalo's files.
+    '    $t = Get-Content -Raw -Encoding UTF8 -LiteralPath $p',
+    "    if ($t -and ([regex]::IsMatch($t, [regex]::Escape($spec.projectDir) + '(?![\\w-])', 'IgnoreCase') -or $t.Contains('title Dung bot OpenClaw'))) {",
     "      [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin')",
     '      "recycled: $n"',
     '    }',
     '  }',
     '}',
+    "} catch { 'ERROR: ' + $_.Exception.Message; exit 1 }",
   ].join('\n');
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
   const out = await runCapture('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { shell: false, timeout: 60000 });
-  if (out.code !== 0) throw new Error(String(out.stderr || out.stdout || `exit ${out.code}`).trim().slice(0, 300));
+  if (out.code !== 0) {
+    const reason = String(out.stdout || '').split(/\r?\n/).find((l) => l.startsWith('ERROR: '))?.slice(7)
+      || String(out.stderr || '').replace(/#< CLIXML[\s\S]*$/, '').trim() || `exit ${out.code}`;
+    throw new Error(reason.trim().slice(0, 300));
+  }
   const lines = String(out.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.some((l) => l.startsWith('desktop: '))) sendLog(`[native] Đã đặt lối tắt "${spec.desktop[0].name}" (có logo) lên Desktop.`);
   const recycled = lines.filter((l) => l.startsWith('recycled: ')).map((l) => l.slice(10));
@@ -5219,10 +5538,12 @@ async function startNativeRuntime({ projectDir, osChoice = '', gatewayPort, rout
   // plain account HOME. Older runtimes keep the original env untouched.
   const daemonEnv = await prepareNativeStateHome(projectDir).catch((e) => { sendLog(`[native] state-home prep skipped: ${e.message}`); return null; });
   if (process.platform === 'win32') {
-    // No service on Windows (see the note above writeWindowsLaunchers): on the >=2026.8 layout
-    // `daemon install` succeeds and registers an at-logon task that starts a second gateway at every
-    // login. First boot goes through the same launcher as every restart, which also removes a task
-    // left behind by an older install.
+    // No service on Windows: on the >=2026.8 layout `daemon install` succeeds and registers an
+    // at-logon Scheduled Task that starts a second gateway at every login (see
+    // removeWindowsGatewayTask). First boot goes through the same launcher as every restart.
+    // restartWindowsGateway also rewrites the launchers: they were written before the state move and
+    // name the state dir outright, and after the move <project>\.openclaw is a junction, which 2026.8
+    // fs-safe refuses as OPENCLAW_HOME - "1 - KHOI DONG BOT" would no longer start the bot.
     await restartWindowsGateway(projectDir);
   } else if (daemonEnv) {
     await run('openclaw', ['daemon', 'install', '--force', '--port', String(gwPort)], { cwd: projectDir, env: daemonEnv });
@@ -5270,7 +5591,18 @@ async function removeNativeRuntime(projectDir) {
     await run('systemctl', ['--user', 'disable', '--now', 'openclaw-9router.service'], {}).catch(() => {});
     await run('systemctl', ['--user', 'disable', '--now', 'openclaw-9router-sync.service'], {}).catch(() => {});
   }
-  const routerPort = (readNativeMeta(projectDir) || {}).routerPort || NATIVE_DEFAULT_ROUTER_PORT;
+  const meta = readNativeMeta(projectDir) || {};
+  const routerPort = meta.routerPort || NATIVE_DEFAULT_ROUTER_PORT;
+  if (process.platform === 'win32') {
+    // No service manager here: the launcher's gateway, the 9router parent (cli.js) and the node host
+    // kept running - each with cwd = the project (`cd /d`), which Windows will not delete, so the
+    // folder delete failed halfway with a misleading error while the bot went on answering.
+    await stopWindowsGateway(meta.gatewayPort || NATIVE_DEFAULT_GATEWAY_PORT);
+    await runCapture('powershell', ['-NoProfile', '-Command',
+      `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*\\node_modules\\9router\\*' -and $_.CommandLine -match '-p ${Number(routerPort)}(\\s|$)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }`],
+      { shell: false, timeout: 20000 }).catch(() => {});
+    if (existsSync(join(projectDir, '.openclaw-node'))) await stopNodeHost(meta.gatewayPort || NATIVE_DEFAULT_GATEWAY_PORT).catch(() => {});
+  }
   await killListenerOnPort(routerPort);
   return true;
 }
@@ -5474,6 +5806,21 @@ async function updateRuntimeUnlocked(target, projectDir) {
         await run('npm', ['install', '-g', spec]);
       } finally {
         await startNative9Router(projectDir, { restart: true }).catch((e) => sendLog(`[native] 9router restart: ${e.message}`));
+      }
+    } else if (process.platform === 'win32') {
+      // Same lock, openclaw side: the running gateway and node host have the package's native addons
+      // loaded (fs-safe-native.node, koffi.node, conpty.node…), and Windows will not replace a loaded
+      // DLL - npm failed EPERM/EBUSY or left a half-removed package. Stop them first; if npm fails,
+      // bring the bot back on whatever is installed.
+      sendLog('[native] Dừng gateway trước khi cài bản OpenClaw mới (Windows không cho thay tệp đang chạy)...');
+      const gwMeta = readNativeMeta(projectDir) || {};
+      await stopWindowsGateway(gwMeta.gatewayPort || state.gatewayPort || NATIVE_DEFAULT_GATEWAY_PORT);
+      await stopNodeHost().catch(() => {});
+      try {
+        await run('npm', ['install', '-g', spec]);
+      } catch (err) {
+        await restartNativeRuntime(projectDir).catch((e) => sendLog(`[native] restart after failed update: ${e.message}`));
+        throw err;
       }
     } else {
       await run('npm', ['install', '-g', spec]);
@@ -5684,6 +6031,31 @@ function agentWorkspaceDirs(cfg, projectDir) {
     if (rel) dirs.push(join(projectDir, '.openclaw', rel));
   }
   return [...new Set(dirs)];
+}
+
+/**
+ * Project-wide grants live as managed blocks in every bot's docs: PC control in TOOLS.md, granted
+ * folders in AGENTS.md. Creating or editing a bot rewrites those files, so put the blocks back.
+ */
+async function reapplyProjectGrants(projectDir) {
+  const hostCfg = await readHostControlConfig(projectDir).catch(() => null);
+  if (hostCfg?.enabled) await writeHostControlAccess(projectDir, hostCfg).catch(() => {});
+  if (!isNativeProject(projectDir)) {
+    await updateGrantedMountsInAgents(projectDir).catch(() => {});
+    return;
+  }
+  const mounts = (readNativeMeta(projectDir) || {}).mounts;
+  if (!Array.isArray(mounts) || !mounts.length) return;
+  const block = renderNativeGrantedMountsBlock(mounts);
+  let cfg = {};
+  try { cfg = ensureConfigShape(JSON.parse(await fsp.readFile(join(projectDir, '.openclaw', 'openclaw.json'), 'utf8'))); } catch { return; }
+  for (const dir of agentWorkspaceDirs(cfg, projectDir)) {
+    const file = join(dir, 'AGENTS.md');
+    if (!existsSync(file)) continue;
+    const doc = await fsp.readFile(file, 'utf8');
+    const next = applyGrantedMountsBlock(doc, block);
+    if (next !== doc) await fsp.writeFile(file, next, 'utf8');
+  }
 }
 
 /** Replace or append the managed granted-mounts block in one AGENTS.md text. Empty block removes it. */
@@ -6396,6 +6768,20 @@ async function ensureDockerInstalled(osChoice) {
   throw httpError(400, 'Hệ điều hành không được hỗ trợ tự cài Docker. Hãy cài Docker thủ công rồi thử lại.');
 }
 
+/** Ids of the real bots (not the materialised `main`) configured in a project folder; [] if none/unreadable. */
+function existingProjectBots(projectDir) {
+  try {
+    const cfg = JSON.parse(readFileSync(join(projectDir, '.openclaw', 'openclaw.json'), 'utf8'));
+    const list = [
+      ...(Array.isArray(cfg?.agents?.list) ? cfg.agents.list : []),
+      ...Object.entries(cfg?.agents?.entries || {}).map(([id, a]) => ({ id, ...(a || {}) })),
+    ].filter((a) => a?.id);
+    return list.filter((a) => !isPhantomMainAgent(a, projectDir, Math.max(list.length, 2))).map((a) => a.id);
+  } catch {
+    return [];
+  }
+}
+
 async function installCore({ osChoice, mode, projectDir, gatewayPort = 18789, routerPort = 20128, userTimezone = 'Asia/Ho_Chi_Minh' }) {
   state.installing = true;
   state.installed = false;
@@ -6427,6 +6813,12 @@ async function installCore({ osChoice, mode, projectDir, gatewayPort = 18789, ro
     // one on the machine before npm touches anything. Docker still needs the daemon instead.
     if (mode === 'native') await ensureNodeInstalled();
     else await ensureDockerInstalled(osChoice);
+    // writeCoreProject starts openclaw.json and .env from scratch. Whatever a previous attempt left
+    // is kept beside them first (the /api/install route already refuses folders with real bots).
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
+    for (const f of [join(projectDir, '.openclaw', 'openclaw.json'), join(projectDir, '.env')]) {
+      if (existsSync(f)) await fsp.copyFile(f, `${f}.bak-reinstall-${stamp}`).catch(() => {});
+    }
     await writeCoreProject({ projectDir, osChoice, mode, gatewayPort, routerPort, userTimezone });
     await run('npm', ['install', '-g', OPENCLAW_NPM_SPEC]);
     // The global runtime just changed - every version gate after this point (notably
@@ -6963,10 +7355,21 @@ async function connectPickedProject(projectName, rootProjectDir) {
 
 async function deleteProjectFolder(projectDir, rootProjectDir) {
   const resolved = resolve(String(projectDir || ''));
-  const home = resolve(getRealHomedir());
-  const rootHome = resolve(os.homedir());
   if (!existsSync(join(resolved, '.openclaw', 'openclaw.json'))) throw httpError(404, 'openclaw.json not found in selected project');
-  if (resolved === home || resolved === rootHome || /^[A-Za-z]:\\?$/.test(resolved)) throw httpError(403, 'Refusing to delete home/root folder');
+  // Compare REAL paths, case-insensitively on Windows: `c:\users\admin`, `\\?\C:\Users\Admin` or a
+  // junction all named the user profile while failing a plain `===` against `C:\Users\Admin` - and
+  // the profile does hold .openclaw\openclaw.json on >=2026.8, so it passed every check above and
+  // `fs.rm` took the whole profile. Refuse home and anything above it, a drive root, and any folder
+  // ABOVE the launch root (the launch root itself is a project and may be deleted).
+  const real = (p) => { let r = resolve(String(p || '')); try { r = fs.realpathSync.native(r); } catch {} return process.platform === 'win32' ? r.toLowerCase() : r; };
+  const target = real(resolved);
+  const below = (child, parent) => child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+  const homes = [getRealHomedir(), os.homedir()].filter(Boolean).map(real);
+  const root = rootProjectDir ? real(rootProjectDir) : '';
+  if (/^[a-z]:\\?$/i.test(target) || target === sep || /^\\\\[?.]\\/.test(resolved)
+    || homes.some((h) => h === target || below(h, target)) || (root && below(root, target))) {
+    throw httpError(403, 'Refusing to delete home/root folder');
+  }
   // Native: uninstall the managed service before the folder goes, otherwise launchd/systemd keeps
   // relaunching a gateway whose config and workspace no longer exist.
   if (isNativeProject(resolved)) {
@@ -7002,7 +7405,10 @@ async function deleteProjectFolder(projectDir, rootProjectDir) {
 
 async function pickProjectFolder() {
   if (process.platform !== 'win32') throw httpError(501, 'Folder picker currently supported on Windows only');
+  // UTF-8 out: PowerShell 5.1 writes redirected stdout in the OEM code page, so a folder like
+  // "D:\Dự án bot" came back as "D:\D? �n bot" and connecting then failed with "openclaw.json not found".
   const script = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
 $dlg.Description = "Select an OpenClaw project folder"
@@ -7070,7 +7476,9 @@ async function applyFeatureToggle(projectDir, agentId, kind, id, enabled) {
       for (const a of cfg.agents.list) {
         const sf = await readWorkspaceText(projectDir, a, 'skills/cronjob/SKILL.md');
         await fsp.mkdir(dirname(sf.file), { recursive: true });
-        await fsp.writeFile(sf.file, buildCronjobSkillMd(true, 'zalo-connect'), 'utf8');
+        // Each bot's own channel and the project's time zone (both used to be fixed: zalo-connect + VN).
+        const delivery = typeof deliveryChannelFor === 'function' ? deliveryChannelFor(mapAgentChannel(a, cfg), zaloBackendForConfig(cfg)) : 'zalo-connect';
+        await fsp.writeFile(sf.file, buildCronjobSkillMd(true, delivery, cfg.agents?.defaults?.userTimezone || 'Asia/Ho_Chi_Minh'), 'utf8');
       }
     } else {
       if (cfg.tools?.alsoAllow) cfg.tools.alsoAllow = cfg.tools.alsoAllow.filter((x) => x !== 'group:automation');
@@ -7258,11 +7666,11 @@ const PLUGIN_NPM_SPEC = {
   // `learning-memory`, used as the config key). Install by the full package spec.
   'learning-memory': 'clawhub:openclaw-learning-memory',
   // duckduckgo is openclaw's own external plugin on npm, not a ClawHub package.
-  // Pinned to the OpenClaw pin (common-gen OPENCLAW_NPM_SPEC): @latest requires a newer plugin API
-  // (2026.10.5 needs host >=2026.10.5), so an unpinned install fails on 2026.9.8.
+  // Both are pinned to the OpenClaw pin (common-gen OPENCLAW_NPM_SPEC): @latest (2026.10.5) declares
+  // pluginApi >=2026.10.5, so an unpinned install fails on 2026.9.8 ("requires plugin API >=2026.10.5").
   'duckduckgo': '@openclaw/duckduckgo-plugin@2026.9.8',
   // Zalo Bot API channel - also a plain npm package under openclaw's own scope.
-  'zalo': '@openclaw/zalo',
+  'zalo': '@openclaw/zalo@2026.9.8',
 };
 const pluginInstallSpec = (id) => PLUGIN_NPM_SPEC[id] || `clawhub:${id}`;
 
@@ -7272,6 +7680,9 @@ async function installFeature(projectDir, agentId, kind, id) {
       'image-gen': 'infographic-generator',
     };
     const slug = skillSlugMap[id] || id;
+    // The slug goes into `sh -lc "... skills install <slug> ..."` inside the container and onto the
+    // openclaw command line: accept a ClawHub slug and nothing that a shell would interpret.
+    if (!/^[A-Za-z0-9@][A-Za-z0-9@._/-]*$/.test(String(slug || ''))) throw httpError(400, `Tên skill không hợp lệ: ${slug}`);
 
     let composeDir = null;
     if (existsSync(join(projectDir, 'docker-compose.yml'))) {
@@ -7816,7 +8227,10 @@ async function serveStatic(req, res) {
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/') pathname = '/index.html';
   const file = resolve(WEB_DIR, pathname.slice(1));
-  if (!file.startsWith(WEB_DIR) || !existsSync(file)) return false;
+  if (!file.startsWith(WEB_DIR + sep) || !existsSync(file)) return false;
+  // A directory (e.g. GET /%2e%2f) used to be piped as a file: the stream's EISDIR 'error' had no
+  // listener and took the whole Setup process down - any web page could do it with an <img>.
+  try { if (!fs.statSync(file).isFile()) return false; } catch { return false; }
   const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
   res.writeHead(200, {
     'content-type': types[extname(file)] || 'application/octet-stream',
@@ -7824,12 +8238,39 @@ async function serveStatic(req, res) {
     pragma: 'no-cache',
     expires: '0',
   });
-  createReadStream(file).pipe(res);
+  createReadStream(file).on('error', () => res.destroy()).pipe(res);
   return true;
+}
+
+/**
+ * The API has no login, so without this any web page the operator opens could drive it: a
+ * cross-site POST needs no preflight (CSRF - delete a project, turn on PC control, install
+ * things), and a DNS-rebinding domain could even read the answers (gateway token, config).
+ *   • Host must be one a rebinding attack cannot produce: an IP literal, localhost, or the host
+ *     this Setup was started with.
+ *   • A state-changing request that carries an Origin (every browser sends one on POST/PUT/DELETE)
+ *     must come from this same origin. No Origin = not a browser (curl, scripts) - allowed.
+ */
+function requestAllowed(req) {
+  const host = String(req.headers.host || '').toLowerCase();
+  if (host) {
+    let hostname = '';
+    try { hostname = new URL(`http://${host}`).hostname.replace(/^\[|\]$/g, ''); } catch { return false; }
+    // OPENCLAW_SETUP_ALLOWED_HOSTS: extra names for a Setup served behind a reverse proxy/domain.
+    const extra = String(process.env.OPENCLAW_SETUP_ALLOWED_HOSTS || '').toLowerCase().split(',').map((h) => h.trim()).filter(Boolean);
+    const known = net.isIP(hostname) || hostname === 'localhost' || hostname.endsWith('.localhost')
+      || hostname === String(activeUiHost || '').toLowerCase() || extra.includes(hostname);
+    if (!known) return false;
+  }
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return true;
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try { return new URL(origin).host.toLowerCase() === host; } catch { return false; }
 }
 
 async function handler(req, res, rootProjectDir) {
   try {
+    if (!requestAllowed(req)) return json(res, { error: 'Forbidden: request from another site' }, 403);
     const url = new URL(req.url, 'http://local');
     if (url.pathname === '/api/install/logs') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -7862,6 +8303,7 @@ async function handler(req, res, rootProjectDir) {
         os: osChoice,
         platform: process.platform,
         arch: process.arch,
+        homeDir: getRealHomedir(),
         recommendedMode: recommendedMode(osChoice),
         node: nodeStatus,
         npm: npmStatus,
@@ -7899,11 +8341,38 @@ async function handler(req, res, rootProjectDir) {
     }
     if (url.pathname === '/api/install' && req.method === 'POST') {
       if (state.installing) return json(res, { ok: false, error: 'Install already running' }, 409);
-      const body = await readJson(req);
+      // Claim the flag NOW: the awaits below (body, project discovery with its Docker probes) take
+      // seconds, and a second click in that window passed the check too - two installs in parallel
+      // on the same ports. installCore keeps it and clears it when it ends.
+      state.installing = true;
+      let body;
+      try { body = await readJson(req); } catch (err) { state.installing = false; throw err; }
       const osChoice = body.os || detectOs();
       const mode = body.mode || recommendedMode(osChoice);
       const userTimezone = String(body.userTimezone || '').trim() || 'Asia/Ho_Chi_Minh';
       const projectDir = body.projectDir ? resolve(String(body.projectDir)) : resolve(rootProjectDir, body.projectName || DEFAULT_PROJECT_NAME);
+      // Docker is retired for NEW projects: current OpenClaw no longer runs in this setup's Docker
+      // image. The UI disables the tile; a stale cached page or a direct API call must not get a
+      // half-working install either. Existing docker projects are still managed (and can move to native).
+      if (mode === 'docker') {
+        state.installing = false;
+        return json(res, { ok: false, error: 'Chế độ Docker đã ngừng cho project mới (OpenClaw bản mới không còn chạy được qua Docker). Hãy chọn Native.' }, 400);
+      }
+      // cmd.exe expands %...% inside every launcher line, quoted or not: "D:\100% bot" became
+      // `cd /d "D:\100 bot"` and OPENCLAW_HOME pointed nowhere. Refuse it up front.
+      if (process.platform === 'win32' && projectDir.includes('%')) {
+        state.installing = false;
+        return json(res, { ok: false, error: `Tên thư mục không được chứa ký tự % (Windows hiểu nó là biến): ${projectDir}` }, 400);
+      }
+      // Installing again into a folder that already runs bots rewrote openclaw.json from scratch -
+      // through the junction on >=2026.8, so every bot, channel login and the gateway token were gone,
+      // and the old gateway/9router were then started a second time on new ports. A half-finished
+      // attempt (no real bot yet) may be retried.
+      const existingBots = existingProjectBots(projectDir);
+      if (existingBots.length) {
+        state.installing = false;
+        return json(res, { ok: false, error: `Thư mục ${projectDir} đã có bot (${existingBots.join(', ')}). Cài lại sẽ xoá cấu hình của chúng - hãy dùng "Kết nối project" để quản lý, nút Cập nhật để sửa, hoặc chọn thư mục khác.` }, 409);
+      }
 
       // Auto-allocate unique, free ports to avoid collision (reserving gatewayPort + 1 for Zalo-mod UI)
       const projects = await discoverProjects(rootProjectDir).catch(() => []);
@@ -8081,7 +8550,7 @@ async function handler(req, res, rootProjectDir) {
               ? ['--prefix', npmPrefix]
               : [];
             sendLog(`[update-setup] Global npm install detected - npm i -g create-openclaw-bot@latest${prefixArgs.length ? ` (prefix ${npmPrefix})` : ''}…`);
-            await run('npm', ['i', '-g', 'create-openclaw-bot@latest', '--no-audit', '--no-fund', ...prefixArgs], { cwd: installerDir });
+            await run('npm', ['i', '-g', 'create-openclaw-bot@latest', '--no-audit', '--no-fund', ...prefixArgs], { cwd: os.tmpdir() }); // not installerDir: npm replaces that folder, and Windows will not remove a cwd (EBUSY)
           } else {
             // An npx install: warm the package cache HERE, while the UI is still up and the
             // browser is still watching the log. Leaving it to the relaunch meant the download
@@ -8115,7 +8584,10 @@ async function handler(req, res, rootProjectDir) {
       }
       await recreateDockerBot(projectDir).catch((err) => sendLog(`[docker] recreate skipped/failed: ${err.message}`));
       
-      if (result.channel === 'telegram') {
+      // Docker only: createBotInProject already wrote the account, and on a native project this block
+      // ran `docker exec` against whatever container name it guessed and then restarted the gateway a
+      // SECOND time right after recreateDockerBot had (on Windows: kill, relaunch, up to 90s wait).
+      if (result.channel === 'telegram' && !isNativeProject(projectDir)) {
         const botContainer = getBotContainerName(projectDir);
         const token = String(body.token || '').trim();
         sendLog(`[telegram] Registering Telegram channel via CLI inside ${botContainer}...`);
@@ -8256,7 +8728,13 @@ function findPort(host, preferredPort) {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.unref();
-    server.on('error', () => resolve(findPort(host, preferredPort + 1)));
+    // Only a busy/forbidden port means "try the next one". Any other error (an --host that is not
+    // an address of this machine, a bad --port) used to recurse port after port up to 65536 and
+    // then crash with a raw stack.
+    server.on('error', (err) => {
+      if ((err?.code === 'EADDRINUSE' || err?.code === 'EACCES') && preferredPort < 65535) resolve(findPort(host, preferredPort + 1));
+      else reject(new Error(`Không mở được giao diện ở ${host}:${preferredPort} (${err?.code || err?.message})`));
+    });
     server.listen(preferredPort, host, () => {
       const port = server.address().port;
       server.close(() => resolve(port));
@@ -8329,7 +8807,9 @@ function restartInstaller() {
         // browser gives up reconnecting, and a different artifact from the one they installed.
         const win = process.platform === 'win32';
         bin = win ? 'npx.cmd' : 'npx';
-        spawnArgs = ['--yes', 'create-openclaw-bot@latest', ...uiArgs];
+        // shell:true on Windows joins argv with plain spaces, so "D:\bo cai" reached the new CLI as
+        // `--project-dir=D:\bo` and the UI came back on a new, empty folder. Quote each argument.
+        spawnArgs = ['--yes', 'create-openclaw-bot@latest', ...(win ? uiArgs.map((a) => `"${a}"`) : uiArgs)];
         opts = { detached: true, stdio: relaunchStdio, shell: win };
       } else {
         // Local clone / file install - re-run this entry (git pull already updated it).
@@ -8558,4 +9038,4 @@ export async function startLocalInstaller({ host = '127.0.0.1', preferredPort = 
   ]).catch(() => {});
 }
 
-export { patchNativeZaloConnect, installWindowsShortcuts, syncOwnerAllowFrom, repointWorkspaceDocPaths, workspaceDocPaths, nativePluginPresent, repointStatePaths, parse9RouterAuthProfiles, addBotMount, addNativeMount, renderNativeGrantedMountsBlock, applyGrantedMountsBlock, agentWorkspaceDirs, patchBrowserAutomationHostPreference, debugChromeProfileDir, defaultChromeProfileDir, createBotInProject, updateBotInProject, deleteBotInProject, validateOpenclawConfig, startZaloLogin, readBotCredentials, resolveProject9RouterApiKey, installCore, deleteProjectFolder, buildZaloHealthSnapshot, removeEmptyWorkspaceAttestations, openPrivacyPane, projectDeployMode, isNativeProject, nativeServiceLabel, nativeEnv, ocArgv, migrateNativePaths, discoverNativeProjectRoots, detectOs, stripCliWarnings, migrationLeaseDeadline, ensureNativePlugins, findFreeHostPort, syncNativeServiceEnv, adoptStrayNativeHome, runNativeConfigMigrations, detectExistingSetupUi, nodeVersionSupported, migrateDockerProjectToNative, dedupeProjectsByRealState, hardenNativeServiceRestarts, clearNativeServiceFailure, describePortHolder, reportNativeGatewayBlockage };
+export { moveStateDir, copyTreeKeepLinks, patchNativeZaloConnect, installWindowsShortcuts, syncOwnerAllowFrom, repointWorkspaceDocPaths, workspaceDocPaths, nativePluginPresent, repointStatePaths, parse9RouterAuthProfiles, addBotMount, addNativeMount, renderNativeGrantedMountsBlock, applyGrantedMountsBlock, agentWorkspaceDirs, patchBrowserAutomationHostPreference, debugChromeProfileDir, defaultChromeProfileDir, createBotInProject, updateBotInProject, deleteBotInProject, validateOpenclawConfig, startZaloLogin, readBotCredentials, resolveProject9RouterApiKey, installCore, deleteProjectFolder, buildZaloHealthSnapshot, removeEmptyWorkspaceAttestations, openPrivacyPane, projectDeployMode, isNativeProject, nativeServiceLabel, nativeEnv, ocArgv, migrateNativePaths, discoverNativeProjectRoots, detectOs, stripCliWarnings, migrationLeaseDeadline, ensureNativePlugins, findFreeHostPort, syncNativeServiceEnv, adoptStrayNativeHome, runNativeConfigMigrations, detectExistingSetupUi, nodeVersionSupported, migrateDockerProjectToNative, dedupeProjectsByRealState, hardenNativeServiceRestarts, clearNativeServiceFailure, describePortHolder, reportNativeGatewayBlockage };

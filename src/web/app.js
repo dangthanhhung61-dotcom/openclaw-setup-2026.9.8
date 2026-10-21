@@ -255,12 +255,20 @@ function joinPath(base, name) {
   if (!n) return b;
   return b + (b.includes('\\') ? '\\' : '/') + n;
 }
+// Default project folder for a new install: the server's real home on macOS/Linux (a literal
+// /home/you made a root VPS create /home/you), C:\openclaw-setup on Windows (the CLI's default).
+function defaultInstallDir(os) {
+  if (os === 'win') return 'C:\\openclaw-setup';
+  const home = state.system?.homeDir;
+  if (home && state.system?.platform !== 'win32') return joinPath(home, 'openclaw-setup');
+  return os === 'macos' ? '/Users/you/openclaw-setup' : '/home/you/openclaw-setup';
+}
 function refreshInstallDraft(next = {}) {
   const prev = state.installDraft || {};
   const sys = state.system || {};
   const os = next.os || prev.os || state.os || sys.os || 'win';
   const mode = next.mode || prev.mode || state.mode || sys.recommendedMode || 'docker';
-  const defaultDir = os === 'win' ? 'C:\\openclaw-setup' : os === 'macos' ? '/Users/you/openclaw-setup' : '/home/you/openclaw-setup';
+  const defaultDir = defaultInstallDir(os);
   
   const projectName = String(next.projectName ?? prev.projectName ?? '').trim();
   const projectRoot = String(next.projectRoot ?? prev.projectRoot ?? '').trim();
@@ -1051,7 +1059,7 @@ function botCreateForm(ch, empty, data = {}) {
       ${data.mode !== 'edit' ? `
         <label>
           <span>${t('ID bot (viết liền, ko dấu)', 'Bot ID (no accent, lowercase)')}</span>
-          <input name="agentId" required pattern="^[a-z0-9-_]+$" title="${t('Chỉ dùng chữ cái viết thường không dấu, số, gạch ngang (-) và gạch dưới (_)', 'Only lowercase letters, numbers, hyphens (-) and underscores (_) are allowed')}" placeholder="william" value=""/>
+          <input name="agentId" required pattern="[a-z0-9][a-z0-9_\\-]{0,63}" maxlength="64" title="${t('Chỉ dùng chữ cái viết thường không dấu, số, gạch ngang (-) và gạch dưới (_)', 'Only lowercase letters, numbers, hyphens (-) and underscores (_) are allowed')}" placeholder="william" value=""/>
         </label>
       ` : ''}
       <label><span>${t('\u0056ai tr\u00f2','Role')}</span><input name="role" required placeholder="${t('\u0054r\u1ee3 l\u00fd AI c\u00e1 nh\u00e2n','Personal AI assistant')}" value="${escapeHtml(data.role || '')}"/></label>
@@ -1162,7 +1170,7 @@ function botFilesPanel() {
   const editableFiles = files.filter(f => f.type !== 'dir' && f.editable !== false);
   const selected = editableFiles.find(f => f.name === state.selectedFile) || editableFiles[0];
   if (selected && state.selectedFile !== selected.name) state.selectedFile = selected.name;
-  return `<div class="bot-files-head"><div><h3>${t('C\u00e2y th\u01b0 m\u1ee5c bot','Bot file tree')}</h3>${projectPathLine(currentBot(), selected?.name || '')}</div>${selected ? `<button class="save icon-btn2" data-file="${selected.name}">${actionIcon('save')} ${ui('save')}</button>` : ''}</div>
+  return `<div class="bot-files-head"><div><h3>${t('C\u00e2y th\u01b0 m\u1ee5c bot','Bot file tree')}</h3>${projectPathLine(currentBot(), selected?.name || '')}</div>${selected ? `<button class="save icon-btn2" data-file="${escapeHtml(selected.name)}">${actionIcon('save')} ${ui('save')}</button>` : ''}</div>
     ${files.length ? `<div class="file-workbench"><div class="file-tree file-tree--nested">${renderFileTree(files, selected?.name || '')}</div>${selected ? `<textarea class="tree-editor" data-editor="${escapeHtml(selected.name)}">${escapeHtml(selected.content)}</textarea>` : `<div class="tree-editor tree-editor--empty">${t('Ch\u1ecdn file text \u0111\u1ec3 xem/s\u1eeda','Choose a text file to view/edit')}</div>`}</div>` : `<p>${ui('noFiles')}</p>`}`;
 }
 
@@ -1626,21 +1634,26 @@ document.querySelectorAll('[data-project-pick-folder]').forEach(btn => btn.oncli
   });
   $('#credential-form')?.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const submitBtn = ev.currentTarget.querySelector('button[type="submit"]');
+    // Keep the form: ev.currentTarget is null once the handler has awaited, so reading it after the
+    // save threw - the key was saved but "Saved" never showed and the status never reloaded.
+    const form = ev.currentTarget;
+    const submitBtn = form.querySelector('button[type="submit"]');
     withButtonLoading(submitBtn, async () => {
-      const nineRouterApiKey = ev.currentTarget.querySelector('[name="nineRouterApiKey"]')?.value || '';
+      const nineRouterApiKey = form.querySelector('[name="nineRouterApiKey"]')?.value || '';
       await api('/api/bot/credentials', { method: 'PUT', body: { projectDir: activeProjectDir(), nineRouterApiKey } });
-      const msg = ev.currentTarget.querySelector('[data-cred-msg]');
+      const msg = form.querySelector('[data-cred-msg]');
       if (msg) msg.textContent = t('Đã lưu','Saved');
       await loadStatus();
-    });
+    }).catch((err) => showToast(t('Lưu thất bại', 'Save failed'), err.message, 'error'));
   });
   $('#install')?.addEventListener('click', () => {
     state.installModalOpen = true;
     state.installTab = document.querySelector('input[name=mode]:checked')?.value || 'native';
     const os = document.querySelector('input[name=os]:checked')?.value || state.os || state.system?.os || 'win';
-    const defaultDir = os === 'win' ? 'E:\\bot' : os === 'macos' ? '/Users/you/openclaw-bot' : '/home/you/openclaw-bot';
-    
+    // Same default as refreshInstallDraft. This used to be the developer's own `E:\bot` (no E: drive on
+    // most machines, so Install failed) or a literal /home/you path.
+    const defaultDir = defaultInstallDir(os);
+
     // reset draft to defaultDir and never pull currently connected project E:\mkt to prevent dangerous overrides
     refreshInstallDraft({ 
       os, 
@@ -1685,7 +1698,7 @@ document.querySelectorAll('[data-project-pick-folder]').forEach(btn => btn.oncli
       await loadStatus(true);
       state.tab = 'logs';
       render();
-    });
+    }).catch((err) => showToast(t('Không cài được', 'Install failed'), err.message, 'error'));
   });
   document.querySelectorAll('[data-path-action]').forEach(btn => btn.onclick = () => {
     const action = btn.dataset.pathAction;

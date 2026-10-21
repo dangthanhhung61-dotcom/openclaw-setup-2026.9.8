@@ -39,9 +39,11 @@ const CRLF = (s) => s.replace(/\r?\n/g, '\r\n');
 
 /** Hidden-launch helper. WScript is the only reliable way to start a .cmd with no window. */
 function buildRunHiddenVbs() {
+  // `cmd /c ""<path>""`: cmd strips the OUTER pair and keeps the path quoted. With a single pair it
+  // dropped the quotes whenever the path held a space plus one of & ( ) @ ^ (rule 2 of `cmd /?`).
   return CRLF(
     'Set sh = CreateObject("WScript.Shell")\n' +
-    'sh.Run "cmd /c """ & WScript.Arguments(0) & """", 0, False\n',
+    'sh.Run "cmd /c """"" & WScript.Arguments(0) & """""", 0, False\n',
   );
 }
 
@@ -52,7 +54,7 @@ function build9RouterCmd({ projectDir, routerPort }) {
     'rem Ten tep KHONG duoc la "9router.cmd": trung ten thi lenh ben duoi goi lai chinh no.\n' +
     'rem "> NUL" la bat buoc: neu dau ra la man hinh that, 9router bay menu "Choose Interface"\n' +
     'rem roi cho nguoi chon va khong bao gio mo cong.\n' +
-    `cd /d ${projectDir}\n` +
+    `cd /d "${projectDir}"\n` +
     `set "DATA_DIR=${projectDir}\\.9router"\n` +
     `call 9router -n -l -H 127.0.0.1 -p ${routerPort} --skip-update > NUL 2>&1\n`,
   );
@@ -68,29 +70,34 @@ function build9RouterCmd({ projectDir, routerPort }) {
  *  - It is launched as a .cmd through wscript like everything else on Windows. Spawning the
  *    `openclaw.cmd` shim from Node with detached+shell fails outright with `spawn EINVAL`.
  */
-function buildNodeHostCmd({ projectDir, gatewayPort, gatewayToken }) {
+// node.exe and openclaw's entry script as Setup found them (local-server passes them in). The fixed
+// %ProgramFiles%\nodejs + %APPDATA%\npm pair is only the fallback: with nvm-windows, Scoop, Volta or
+// a custom npm prefix it does not exist and the gateway never started ("Cannot find module").
+const DEFAULT_NODE = '%ProgramFiles%\\nodejs\\node.exe';
+const DEFAULT_OPENCLAW_ENTRY = '%APPDATA%\\npm\\node_modules\\openclaw\\dist\\index.js';
+
+function buildNodeHostCmd({ projectDir, gatewayPort, gatewayToken, nodePath, openclawEntry }) {
   return CRLF(
     '@echo off\n' +
     'rem Node host cho tinh nang dieu khien may (tool computer/screen cua OpenClaw).\n' +
-    `cd /d ${projectDir}\n` +
+    `cd /d "${projectDir}"\n` +
     'set "HOME=%USERPROFILE%"\n' +
     `set "OPENCLAW_HOME=${projectDir}\\.openclaw-node"\n` +
     `set "OPENCLAW_STATE_DIR=${projectDir}\\.openclaw-node"\n` +
     (gatewayToken ? `set "OPENCLAW_GATEWAY_TOKEN=${gatewayToken}"\n` : '') +
-    '"%ProgramFiles%\\nodejs\\node.exe" ' +
-    '"%APPDATA%\\npm\\node_modules\\openclaw\\dist\\index.js" ' +
+    `"${nodePath || DEFAULT_NODE}" "${openclawEntry || DEFAULT_OPENCLAW_ENTRY}" ` +
     `node run --host 127.0.0.1 --port ${gatewayPort} --no-tls\n`,
   );
 }
 
 /** Starts the gateway. Calls node directly - see the --task-supervisor note below. */
-function buildGatewayCmd({ projectDir, gatewayPort, stateDir }) {
+function buildGatewayCmd({ projectDir, gatewayPort, stateDir, nodePath, openclawEntry }) {
   return CRLF(
     '@echo off\n' +
     'rem Goi thang node, KHONG qua gateway.cmd cua openclaw: tep do chay kem --task-supervisor,\n' +
     'rem no di tim Scheduled Task de ban giao; khong co task thi no de them tien trinh + cua so.\n' +
     'rem Khong redirect ra tep co dinh (xem trap 3) - openclaw tu ghi nhat ky trong %TEMP%\\openclaw.\n' +
-    `cd /d ${projectDir}\n` +
+    `cd /d "${projectDir}"\n` +
     'set "HOME=%USERPROFILE%"\n' +
     // Name the state dir outright. Setting only HOME works when the state was moved to
     // %USERPROFILE%\.openclaw (the >=2026.8 layout prepareNativeStateHome sets up), and silently
@@ -103,30 +110,41 @@ function buildGatewayCmd({ projectDir, gatewayPort, stateDir }) {
     `set "OPENCLAW_STATE_DIR=${stateDir}"\n` +
     `set "OPENCLAW_GATEWAY_PORT=${gatewayPort}"\n` +
     `set "OPENCLAW_PORT=${gatewayPort}"\n` +
-    '"%ProgramFiles%\\nodejs\\node.exe" --max-old-space-size=8192 ' +
-    `"%APPDATA%\\npm\\node_modules\\openclaw\\dist\\index.js" gateway --port ${gatewayPort}\n`,
+    `"${nodePath || DEFAULT_NODE}" --max-old-space-size=8192 ` +
+    `"${openclawEntry || DEFAULT_OPENCLAW_ENTRY}" gateway --port ${gatewayPort}\n`,
   );
 }
 
 function buildSetupUiCmd({ projectDir, setupPort, setupCommand }) {
-  // Relaunch the SAME Setup that wrote this file. Always calling npx meant a Setup run from a local
-  // checkout was replaced by the published build at the next "Mở giao diện" - its fixes vanished and
-  // the old build put the four Desktop files back on its next restart (C:\bot, 17/10/2026).
+  // Relaunch the SAME Setup that wrote this file (local-server setupRelaunchCommand). Always calling
+  // the npm build meant a Setup started from a local checkout or `npx github:...` was swapped for the
+  // published build at the next "Mo giao dien" - its fixes vanished (C:\bot, 18/10/2026).
   const launch = setupCommand || 'npx --yes create-openclaw-bot';
   return CRLF(
     '@echo off\n' +
     'rem Ten tep nhat ky kem gio, de lan chay sau khong dung vao tep dang bi giu (trap 3).\n' +
-    `cd /d ${projectDir}\n` +
+    `cd /d "${projectDir}"\n` +
     'for /f "tokens=1-4 delims=/: " %%a in ("%TIME%") do set "T=%%a%%b%%c"\n' +
     // `--yes` is not optional. Whenever the installed version differs from what npx resolves - which
     // is EVERY time a new version is published - npx stops at "Need to install the following
     // packages ... Ok to proceed? (y)". The launcher runs hidden, so nobody can answer it: the
     // window sits there forever and the dashboard simply never opens. Measured on a customer
     // machine, where it looked like the tunnel was broken rather than a prompt waiting offscreen.
-    `call ${launch} --host=127.0.0.1 --port=${setupPort} --no-open --project-dir=${projectDir}` +
+    // The project dir is quoted: unquoted, "D:\My Bot" reached the CLI as `--project-dir=D:\My` and
+    // the dashboard opened a different, empty project.
+    `call ${launch} --host=127.0.0.1 --port=${setupPort} --no-open "--project-dir=${projectDir}"` +
     ` > "${projectDir}\\setup-ui-%T%.log" 2>&1\n`,
   );
 }
+
+/**
+ * PowerShell that starts <cmd> hidden from the CURRENT folder. Every .cmd here has done `cd /d` into
+ * the project, so the path comes from the process cwd instead of being pasted into the line: pasted,
+ * a folder name with & ' or ) broke out of cmd's quoting or PowerShell's string ("A&B", "O'Brien",
+ * "Bot (copy)") and nothing started. Not $PWD: PowerShell 5.1 cannot enter a cwd with [ ] and falls
+ * back to its own folder. [char]34 is the quote, so the line holds no `"` of its own.
+ */
+const psStartHidden = (cmd) => `$d=[Environment]::CurrentDirectory; Start-Process wscript -ArgumentList ([char]34+$d+'\\run-hidden.vbs'+[char]34),([char]34+$d+'\\${cmd}'+[char]34) -WindowStyle Hidden`;
 
 function buildStartBotCmd({ projectDir, gatewayPort, routerPort }) {
   const dashPort = gatewayPort + 1;
@@ -134,21 +152,21 @@ function buildStartBotCmd({ projectDir, gatewayPort, routerPort }) {
     '@echo off\n' +
     'title Khoi dong bot OpenClaw\n' +
     'color 0A\n' +
-    `cd /d ${projectDir}\n` +
+    `cd /d "${projectDir}"\n` +
     'echo.\n' +
     'echo   ============================================\n' +
-    `echo      KHOI DONG BOT  --  ${projectDir}\n` +
+    `echo      KHOI DONG BOT  --  "${projectDir}"\n` +
     'echo   ============================================\n' +
     'echo.\n' +
     'echo   Dang bat 9Router...\n' +
-    `powershell -NoProfile -Command "if (-not (Get-NetTCPConnection -LocalPort ${routerPort} -State Listen -EA SilentlyContinue)) { Start-Process wscript -ArgumentList '${projectDir}\\run-hidden.vbs','${projectDir}\\start-9router.cmd' -WindowStyle Hidden }" >nul 2>&1\n` +
+    `powershell -NoProfile -Command "if (-not (Get-NetTCPConnection -LocalPort ${routerPort} -State Listen -EA SilentlyContinue)) { ${psStartHidden('start-9router.cmd')} }" >nul 2>&1\n` +
     'echo   Cho 9Router san sang...\n' +
     `powershell -NoProfile -Command "for($i=0;$i -lt 20;$i++){ try{ Invoke-WebRequest 'http://127.0.0.1:${routerPort}/' -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch { Start-Sleep -Seconds 2 } }"\n` +
     'echo   Dang bat bot (gateway)...\n' +
     // A gateway spends 1.5-3 min booting before it listens; one started meanwhile fights it for the
-    // state dir (300s ownership wait, then exit - win C:\bot 17/10/2026 13:07). So a gateway PROCESS
-    // for this port counts as "already running", not only a listening port.
-    `powershell -NoProfile -Command "if (-not (Get-NetTCPConnection -LocalPort ${gatewayPort} -State Listen -EA SilentlyContinue) -and -not (Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*openclaw*gateway --port ${gatewayPort}*' })) { Start-Process wscript -ArgumentList '${projectDir}\\run-hidden.vbs','${projectDir}\\gateway-start.cmd' -WindowStyle Hidden }" >nul 2>&1\n` +
+    // state dir (300s ownership wait, then exit). So a gateway PROCESS for this port counts as
+    // "already running", not only a listening port.
+    `powershell -NoProfile -Command "if (-not (Get-NetTCPConnection -LocalPort ${gatewayPort} -State Listen -EA SilentlyContinue) -and -not (Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*openclaw*gateway --port ${gatewayPort}*' })) { ${psStartHidden('gateway-start.cmd')} }" >nul 2>&1\n` +
     'echo   Cho bot san sang (co the mat 1-3 phut)...\n' +
     'echo.\n' +
     `powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 80;$i++){ try{ Invoke-WebRequest 'http://127.0.0.1:${gatewayPort}/health' -UseBasicParsing -TimeoutSec 3 | Out-Null; $ok=$true; break } catch { Start-Sleep -Seconds 3 } }; if($ok){ Write-Host '   [OK] Bot da chay.' -ForegroundColor Green } else { Write-Host '   [LOI] Bot chua len.' -ForegroundColor Red }"\n` +
@@ -159,7 +177,7 @@ function buildStartBotCmd({ projectDir, gatewayPort, routerPort }) {
     // never enabled it starts nothing extra.
     `if exist "${projectDir}\\.openclaw-node\\openclaw.json" (\n` +
     '  echo   Dang bat dieu khien may...\n' +
-    `  powershell -NoProfile -Command "if (-not (Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*node*run*--host*' })) { Start-Process wscript -ArgumentList '${projectDir}\\run-hidden.vbs','${projectDir}\\node-host.cmd' -WindowStyle Hidden }" >nul 2>&1\n` +
+    `  powershell -NoProfile -Command "if (-not (Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*node*run*--host*--port ${gatewayPort} *' })) { ${psStartHidden('node-host.cmd')} }" >nul 2>&1\n` +
     ')\n' +
     'echo.\n' +
     'echo   --- Trang thai ---\n' +
@@ -177,13 +195,13 @@ function buildOpenUiCmd({ projectDir, setupPort }) {
     '@echo off\n' +
     'title Mo giao dien bot\n' +
     'color 0B\n' +
-    `cd /d ${projectDir}\n` +
+    `cd /d "${projectDir}"\n` +
     'echo.\n' +
     'echo   ============================================\n' +
     'echo      MO GIAO DIEN QUAN TRI BOT\n' +
     'echo   ============================================\n' +
     'echo.\n' +
-    `powershell -NoProfile -Command "if (-not (Get-NetTCPConnection -LocalPort ${setupPort} -State Listen -EA SilentlyContinue)) { Write-Host '   Dang bat giao dien...'; Start-Process wscript -ArgumentList '${projectDir}\\run-hidden.vbs','${projectDir}\\setup-ui.cmd' -WindowStyle Hidden } else { Write-Host '   Giao dien dang chay san.' }"\n` +
+    `powershell -NoProfile -Command "if (-not (Get-NetTCPConnection -LocalPort ${setupPort} -State Listen -EA SilentlyContinue)) { Write-Host '   Dang bat giao dien...'; ${psStartHidden('setup-ui.cmd')} } else { Write-Host '   Giao dien dang chay san.' }"\n` +
     'echo   Cho giao dien san sang...\n' +
     `powershell -NoProfile -Command "for($i=0;$i -lt 30;$i++){ try{ Invoke-WebRequest 'http://127.0.0.1:${setupPort}/' -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch { Start-Sleep -Seconds 2 } }"\n` +
     `start "" http://127.0.0.1:${setupPort}\n` +
@@ -200,7 +218,9 @@ function buildStopBotCmd({ gatewayPort, routerPort }) {
     'color 0C\n' +
     'echo.\n' +
     'echo   Dang dung bot va 9Router...\n' +
-    'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name=\'node.exe\'\\" | Where-Object { $_.CommandLine -like \'*openclaw*gateway*\' -or $_.CommandLine -like \'*9router*\' } | ForEach-Object { Write-Host (\'   dung PID \' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }"\n' +
+    // Only THIS project's gateway and 9router (by port) - the old '*openclaw*gateway*' / '*9router*'
+    // stopped every project on the machine. Then whatever still listens on the two ports.
+    `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*openclaw*gateway --port ${gatewayPort}*' -or ($_.CommandLine -like '*9router*' -and $_.CommandLine -match '-p ${routerPort}(\\s|$)') } | ForEach-Object { Write-Host ('   dung PID ' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }; foreach($p in ${gatewayPort},${routerPort}){ Get-NetTCPConnection -LocalPort $p -State Listen -EA SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -EA SilentlyContinue } }"\n` +
     'echo.\n' +
     `powershell -NoProfile -Command "Start-Sleep -Seconds 3; foreach($x in @(@('Bot',${gatewayPort}),@('9Router',${routerPort}))){ $c=Get-NetTCPConnection -LocalPort $x[1] -State Listen -EA SilentlyContinue; if($c){ Write-Host ('   {0,-10} VAN CHAY' -f $x[0]) -ForegroundColor Yellow } else { Write-Host ('   {0,-10} da tat' -f $x[0]) -ForegroundColor Green } }"\n` +
     'echo.\n' +
@@ -233,7 +253,7 @@ $rtPort = ${routerPort}
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $tray = New-Object System.Windows.Forms.NotifyIcon
-$tray.Icon = if (Test-Path $icon) { New-Object System.Drawing.Icon $icon } else { [System.Drawing.SystemIcons]::Information }
+$tray.Icon = if (Test-Path -LiteralPath $icon) { New-Object System.Drawing.Icon $icon } else { [System.Drawing.SystemIcons]::Information }
 $tray.Text = 'Bot OpenClaw'
 $tray.Visible = $true
 
@@ -249,28 +269,45 @@ function Get-NodeProcess([string]$like) { Get-CimInstance Win32_Process -Filter 
 function Test-Healthy {
   try { Invoke-WebRequest "http://127.0.0.1:$gwPort/health" -UseBasicParsing -TimeoutSec 3 | Out-Null; $true } catch { $false }
 }
+# Ngoac kep bat buoc: Start-Process noi -ArgumentList bang dau cach, nen thu muc co dau cach
+# (vd. "D:/bo cai/bot") bi cat doi va wscript khong tim thay tep.
 function Start-Hidden([string]$cmd) {
-  Start-Process wscript -ArgumentList (Join-Path $root 'run-hidden.vbs'), (Join-Path $root $cmd) -WindowStyle Hidden
+  Start-Process wscript -ArgumentList ('"' + (Join-Path $root 'run-hidden.vbs') + '"'), ('"' + (Join-Path $root $cmd) + '"') -WindowStyle Hidden
+}
+# Chi tien trinh cua project NAY (theo cong cua no): may co the chay nhieu project.
+function Stop-Port([int]$port) {
+  Get-NetTCPConnection -LocalPort $port -State Listen -EA SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
 }
 
-$mutex = New-Object System.Threading.Mutex($false, 'Local\\OpenClawBotControl')
-if (-not $mutex.WaitOne(0)) {
-  Notify 'Đang xử lý lần bấm trước, đợi chút nhé.' 'Info' 6
-  $tray.Dispose()
-  exit
+# Chi lenh "start" giu khoa (mot lan bam dup khong bat hai gateway). "stop" luon chay ngay, ke ca khi
+# mot lan khoi dong con dang doi bot len (toi 4 phut).
+$mutex = New-Object System.Threading.Mutex($false, "Local\\OpenClawBotControl-$gwPort")
+$owned = $false
+if ($Action -ne 'stop') {
+  try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+  if (-not $owned) {
+    Notify 'Đang xử lý lần bấm trước, đợi chút nhé.' 'Info' 6
+    $tray.Dispose()
+    exit
+  }
 }
 try {
   if ($Action -eq 'stop') {
-    Get-NodeProcess '*openclaw*gateway*' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    Get-NodeProcess '*9router*' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-    Start-Sleep -Seconds 3
+    Get-NodeProcess "*openclaw*gateway --port $gwPort*" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Get-NodeProcess '*9router*' | Where-Object { $_.CommandLine -match "-p $rtPort(\\s|$)" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Start-Sleep -Seconds 1
+    Stop-Port $gwPort
+    Stop-Port $rtPort
+    Start-Sleep -Seconds 2
     if (Test-Listening $gwPort) { Notify 'Bot vẫn còn chạy - bấm "Dừng Bot" lần nữa.' 'Warning' 8 }
     else { Notify 'Đã dừng bot.' 'Info' 6 }
     return
   }
 
-  if (Test-Healthy) { Notify 'Bot đang chạy rồi.' 'Info' 6; return }
-  Notify 'Đang khởi động bot... (khoảng 1-3 phút)'
+  # Gateway song nhung 9Router chet (hoac node dieu khien may chet) van phai bat lai phan thieu,
+  # khong bao "dang chay roi" trong khi bot khong tra loi duoc.
+  $wasUp = (Test-Healthy) -and (Test-Listening $rtPort)
+  if (-not $wasUp) { Notify 'Đang khởi động bot... (khoảng 1-3 phút)' }
 
   if (-not (Test-Listening $rtPort)) {
     Start-Hidden 'start-9router.cmd'
@@ -284,14 +321,15 @@ try {
   $ok = $false
   for ($i = 0; $i -lt 80; $i++) { if (Test-Healthy) { $ok = $true; break }; Start-Sleep -Seconds 3 }
 
-  if ($ok -and (Test-Path (Join-Path $root '.openclaw-node\\openclaw.json')) -and -not (Get-NodeProcess '*node*run*--host*')) {
+  if ($ok -and (Test-Path -LiteralPath (Join-Path $root '.openclaw-node\\openclaw.json')) -and -not (Get-NodeProcess "*node*run*--host*--port $gwPort *")) {
     Start-Hidden 'node-host.cmd'
   }
-  if ($ok) { Notify 'Bot đã sẵn sàng ✅' 'Info' 8 }
+  if ($ok -and $wasUp) { Notify 'Bot đang chạy rồi.' 'Info' 6 }
+  elseif ($ok) { Notify 'Bot đã sẵn sàng ✅' 'Info' 8 }
   else { Notify 'Bot chưa lên sau 4 phút. Mở "Mở giao diện quản trị" để xem lỗi.' 'Warning' 10 }
 }
 finally {
-  $mutex.ReleaseMutex()
+  if ($owned) { $mutex.ReleaseMutex() }
   $tray.Visible = $false
   $tray.Dispose()
 }
@@ -317,7 +355,8 @@ function buildBotControlVbs() {
  * each other's shortcuts.
  */
 function buildWindowsShortcutSpecs({ projectDir }) {
-  const base = String(projectDir || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
+  // No characters a file name cannot hold: a project at a drive root ("D:\") gave "Khởi động Bot (D:)".
+  const base = (String(projectDir || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '').replace(/[:*?"<>|]/g, '').trim();
   const suffix = base && base.toLowerCase() !== 'bot' ? ` (${base})` : '';
   const vbs = `"${projectDir}\\bot-control.vbs"`;
   const start = { name: `Khởi động Bot${suffix}`, target: 'wscript', args: `${vbs} start`, desc: 'Bấm một lần để khởi động bot OpenClaw' };
@@ -363,19 +402,30 @@ function buildReadme({ projectDir, gatewayPort, routerPort, setupPort }) {
   );
 }
 
+/**
+ * cmd.exe reads a batch file in the OEM code page, but the files are written as UTF-8: a path with
+ * Vietnamese letters (a project "D:\Bot bán hàng", or a profile C:\Users\Nguyễn after the state move)
+ * reached `cd /d` / `set OPENCLAW_HOME=` garbled, and the gateway booted on "Missing config". Switch
+ * the console to UTF-8 first - only in files that need it, so plain-ASCII installs stay byte-identical.
+ */
+function utf8Batch(text) {
+  if (!/[^\x00-\x7f]/.test(text)) return text;
+  return text.replace(/^@echo off\r\n/, '@echo off\r\nchcp 65001 >nul\r\n');
+}
+
 /** All launcher files for a native Windows project, as { relativeName: content }. */
-function buildWindowsLaunchers({ projectDir, gatewayPort = 18789, routerPort = 20128, setupPort = 51789, gatewayToken = '', stateDir = '', setupCommand = '' }) {
-  const opts = { projectDir, gatewayPort, routerPort, setupPort, gatewayToken, stateDir: stateDir || `${projectDir}\\.openclaw`, setupCommand };
+function buildWindowsLaunchers({ projectDir, gatewayPort = 18789, routerPort = 20128, setupPort = 51789, gatewayToken = '', stateDir = '', setupCommand = '', nodePath = '', openclawEntry = '' }) {
+  const opts = { projectDir, gatewayPort, routerPort, setupPort, gatewayToken, stateDir: stateDir || `${projectDir}\\.openclaw`, setupCommand, nodePath, openclawEntry };
   return {
     'run-hidden.vbs': buildRunHiddenVbs(),
-    'start-9router.cmd': build9RouterCmd(opts),
-    'gateway-start.cmd': buildGatewayCmd(opts),
-    'node-host.cmd': buildNodeHostCmd(opts),
-    'setup-ui.cmd': buildSetupUiCmd(opts),
+    'start-9router.cmd': utf8Batch(build9RouterCmd(opts)),
+    'gateway-start.cmd': utf8Batch(buildGatewayCmd(opts)),
+    'node-host.cmd': utf8Batch(buildNodeHostCmd(opts)),
+    'setup-ui.cmd': utf8Batch(buildSetupUiCmd(opts)),
     '0 - DOC TRUOC.txt': buildReadme(opts),
-    '1 - KHOI DONG BOT.cmd': buildStartBotCmd(opts),
-    '2 - MO GIAO DIEN.cmd': buildOpenUiCmd(opts),
-    '3 - DUNG BOT.cmd': buildStopBotCmd(opts),
+    '1 - KHOI DONG BOT.cmd': utf8Batch(buildStartBotCmd(opts)),
+    '2 - MO GIAO DIEN.cmd': utf8Batch(buildOpenUiCmd(opts)),
+    '3 - DUNG BOT.cmd': utf8Batch(buildStopBotCmd(opts)),
     'bot-control.ps1': buildBotControlPs1(opts),
     'bot-control.vbs': buildBotControlVbs(),
   };
