@@ -1,7 +1,7 @@
 # Changelog (English)
 
 
-## [Unreleased]
+## [5.18.5] - 2026-10-21
 ### 🔧 Windows: folders with spaces, other drives; foreign web pages blocked; safer bot create/edit/delete
 
 **Branding**

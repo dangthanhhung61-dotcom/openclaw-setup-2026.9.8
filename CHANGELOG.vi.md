@@ -1,7 +1,7 @@
 # Changelog (Tiếng Việt)
 
 
-## [Chưa phát hành]
+## [5.18.5] - 2026-10-21
 ### 🔧 Windows: thư mục có dấu cách, khác ổ đĩa; chặn trang web lạ; tạo/sửa/xoá bot an toàn hơn
 
 **Thương hiệu**
