@@ -163,14 +163,14 @@ if (process.env.OPENCLAW_SETUP_WIZARD === 'true' || isLocalRepo() || hasBundledS
     }
 
     let needsInstall = !fs.existsSync(cliPath) || shouldUpdate;
-    let installSpec = 'create-openclaw-bot@latest';
+    // This repo is distributed from GitHub; `create-openclaw-bot` on npm is the upstream build.
+    let installSpec = 'github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8';
 
     try {
       const runningPkgPath = path.join(__dirname, '..', 'package.json');
       if (fs.existsSync(runningPkgPath)) {
         const runningPkg = JSON.parse(fs.readFileSync(runningPkgPath, 'utf8'));
         if (runningPkg.version) {
-          installSpec = `create-openclaw-bot@${runningPkg.version}`;
 
           const installedPkgPath = path.join(targetPath, 'node_modules', 'create-openclaw-bot', 'package.json');
           if (fs.existsSync(installedPkgPath)) {

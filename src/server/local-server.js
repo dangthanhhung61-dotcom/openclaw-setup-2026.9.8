@@ -579,6 +579,27 @@ const WEB_DIR = resolve(__dirname, '../web');
 const SETUP_VERSION = (() => { try { return JSON.parse(fs.readFileSync(resolve(__dirname, '../../package.json'), 'utf8')).version || '0.0.0'; } catch { return '0.0.0'; } })();
 let latestSetupVersionCache = SETUP_VERSION;
 let isFetchingLatestSetup = false;
+// Where this build is published. It is NOT on npm: `create-openclaw-bot` there is the original
+// upstream build, so installing, relaunching or updating from npm swapped this Setup for that one.
+const SETUP_GITHUB_REPO = 'dangthanhhung61-dotcom/openclaw-setup-2026.9.8';
+const SETUP_INSTALL_SPEC = `github:${SETUP_GITHUB_REPO}`;
+
+/**
+ * `github:<repo>#<sha of main>` - a NEW spec for every commit. npx keys its cache on the spec and
+ * keeps running the copy it fetched first for a bare `github:<repo>`, so updating with that spec
+ * could bring back the old build. Falls back to the bare spec when GitHub cannot be asked.
+ */
+async function latestSetupSpec() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${SETUP_GITHUB_REPO}/commits/main`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Accept: 'application/vnd.github.sha', 'User-Agent': 'openclaw-setup' },
+    });
+    const sha = r.ok ? (await r.text()).trim() : '';
+    if (/^[0-9a-f]{40}$/.test(sha)) return `${SETUP_INSTALL_SPEC}#${sha}`;
+  } catch {}
+  return SETUP_INSTALL_SPEC;
+}
 
 async function fetchLatestSetupVersionBg() {
   if (isFetchingLatestSetup) return;
@@ -587,7 +608,7 @@ async function fetchLatestSetupVersionBg() {
     // Distribution is GitHub (not npm) - read the version straight from main so the
     // "latest" reflects `npx github:…`, not the stale last-published npm release.
     const resp = await fetch(
-      'https://raw.githubusercontent.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8/main/package.json',
+      `https://raw.githubusercontent.com/${SETUP_GITHUB_REPO}/main/package.json`,
       { signal: AbortSignal.timeout(4000), headers: { 'Cache-Control': 'no-cache' } },
     );
     if (resp.ok) {
@@ -5114,30 +5135,34 @@ async function stopNodeHost(port) {
 }
 
 /**
- * The command setup-ui.cmd ("2 - MO GIAO DIEN") runs to bring THIS Setup back, or '' for the
- * default `npx --yes create-openclaw-bot` (the published npm build).
+ * The command setup-ui.cmd ("2 - MO GIAO DIEN") runs to bring THIS Setup back. Never the npm
+ * build: `create-openclaw-bot` on npm is the upstream one (see SETUP_GITHUB_REPO).
  *
  * Always calling the npm build meant a Setup started any other way was swapped for a different
  * build at the next "Mở giao diện": its fixes vanished and its migrations ran backwards (C:\bot,
  * 18/10/2026 - Setup installed with `npx github:<fork>`, the dashboard then came back as the npm
  * 5.18.3 build). So:
  *   • run from the npx cache → npx again, with the SAME spec npx was given (recorded in the cache
- *     dir's package.json); a plain registry spec keeps the default command;
+ *     dir's package.json); any other spec → this repo's `github:` spec;
  *   • anything else (local checkout, global npm install) → this very cli.js.
  */
 function setupRelaunchCommand() {
   const cliPath = resolve(__dirname, '../cli.js');
   const npxRoot = cliPath.match(/^(.*[\\/]_npx[\\/][^\\/]+)[\\/]/)?.[1];
+  if (pendingSetupSpec) return `npx --yes ${pendingSetupSpec}`;
   // The node running Setup now, not whatever `node` is on PATH (a portable node may not be there).
-  if (!npxRoot) return existsSync(cliPath) ? `"${process.execPath}" "${cliPath}"` : '';
+  if (!npxRoot) return existsSync(cliPath) ? `"${process.execPath}" "${cliPath}"` : `npx --yes ${SETUP_INSTALL_SPEC}`;
   let spec = '';
   try { spec = String(JSON.parse(readFileSync(join(npxRoot, 'package.json'), 'utf8'))?.dependencies?.['create-openclaw-bot'] || ''); } catch {}
   // Only a git/GitHub/URL spec needs passing on; a semver range from the registry is the default.
   // (A local folder never gets here: node resolves the npx symlink to the real folder.) Anything
   // that could break out of the .cmd line is refused rather than escaped.
-  if (!/^(github:|git\+|git:|https?:)/i.test(spec) || /["%&|<>^\s]/.test(spec)) return '';
+  if (!/^(github:|git\+|git:|https?:)/i.test(spec) || /["%&|<>^\s]/.test(spec)) return `npx --yes ${SETUP_INSTALL_SPEC}`;
   return `npx --yes ${spec}`;
 }
+
+/** The spec "Cập nhật Setup" just fetched, so the relaunch (and setup-ui.cmd) start THAT build. */
+let pendingSetupSpec = '';
 
 /**
  * Write the double-click launchers into the project and put ONE shortcut with the OpenClaw icon on
@@ -8549,16 +8574,30 @@ async function handler(req, res, rootProjectDir) {
             const prefixArgs = /[\\/]lib[\\/]node_modules[\\/]create-openclaw-bot[\\/]?$/.test(installerDir)
               ? ['--prefix', npmPrefix]
               : [];
-            sendLog(`[update-setup] Global npm install detected - npm i -g create-openclaw-bot@latest${prefixArgs.length ? ` (prefix ${npmPrefix})` : ''}…`);
-            await run('npm', ['i', '-g', 'create-openclaw-bot@latest', '--no-audit', '--no-fund', ...prefixArgs], { cwd: os.tmpdir() }); // not installerDir: npm replaces that folder, and Windows will not remove a cwd (EBUSY)
+            // From THIS repo, not `create-openclaw-bot@latest`: that npm package is the upstream build.
+            const spec = await latestSetupSpec();
+            sendLog(`[update-setup] Global npm install detected - npm i -g ${spec}${prefixArgs.length ? ` (prefix ${npmPrefix})` : ''}…`);
+            await run('npm', ['i', '-g', spec, '--no-audit', '--no-fund', ...prefixArgs], { cwd: os.tmpdir() }); // not installerDir: npm replaces that folder, and Windows will not remove a cwd (EBUSY)
           } else {
             // An npx install: warm the package cache HERE, while the UI is still up and the
             // browser is still watching the log. Leaving it to the relaunch meant the download
             // happened with no server running and nothing to report progress to, so a slow link
-            // looked exactly like a crash.
-            sendLog('[update-setup] Tải bản mới từ npm…');
-            await run('npm', ['cache', 'add', 'create-openclaw-bot@latest'], { cwd: installerDir })
-              .catch((e) => sendLog(`[update-setup] npm cache add: ${e.message}`));
+            // looked exactly like a crash. The spec carries main's commit (latestSetupSpec), so
+            // npx really fetches the new build instead of rerunning its cached copy; the relaunch
+            // and setup-ui.cmd then start that exact build.
+            pendingSetupSpec = await latestSetupSpec();
+            sendLog(`[update-setup] Tải bản mới từ GitHub (${pendingSetupSpec})…`);
+            // `npx <spec> --version`, not `npm cache add`: npm 11 cannot cache-add a git spec
+            // ("GitFetcher requires an Arborist constructor"), and this fills the very npx cache dir
+            // the relaunch runs from, then exits at once.
+            await run('npx', ['--yes', pendingSetupSpec, '--version'], { cwd: os.tmpdir() })
+              .catch((e) => sendLog(`[update-setup] tải trước bản mới: ${e.message}`));
+            const setupUiCmd = join(activeUiProjectDir || '', 'setup-ui.cmd');
+            if (process.platform === 'win32' && existsSync(setupUiCmd)) {
+              const text = await fsp.readFile(setupUiCmd, 'utf8').catch(() => '');
+              const next = text.replace(/call npx --yes \S+ /, `call npx --yes ${pendingSetupSpec} `);
+              if (next !== text) await fsp.writeFile(setupUiCmd, next, 'utf8').catch(() => {});
+            }
           }
           restartInstaller();
         } catch (err) {
@@ -8802,14 +8841,13 @@ function restartInstaller() {
         spawnArgs = winLauncher;
         opts = { detached: true, stdio: relaunchStdio, shell: false, windowsHide: true };
       } else if (isNpx) {
-        // An npx install came from npm, so update from npm. Pulling `github:…` instead rebuilt the
-        // repo from source on every update: minutes of clone plus install, long past the point the
-        // browser gives up reconnecting, and a different artifact from the one they installed.
+        // This build is distributed from GitHub, not npm (npm has the upstream build): relaunch the
+        // spec the update just fetched into the npm cache, so npx starts without a second download.
         const win = process.platform === 'win32';
         bin = win ? 'npx.cmd' : 'npx';
         // shell:true on Windows joins argv with plain spaces, so "D:\bo cai" reached the new CLI as
         // `--project-dir=D:\bo` and the UI came back on a new, empty folder. Quote each argument.
-        spawnArgs = ['--yes', 'create-openclaw-bot@latest', ...(win ? uiArgs.map((a) => `"${a}"`) : uiArgs)];
+        spawnArgs = ['--yes', pendingSetupSpec || SETUP_INSTALL_SPEC, ...(win ? uiArgs.map((a) => `"${a}"`) : uiArgs)];
         opts = { detached: true, stdio: relaunchStdio, shell: win };
       } else {
         // Local clone / file install - re-run this entry (git pull already updated it).
