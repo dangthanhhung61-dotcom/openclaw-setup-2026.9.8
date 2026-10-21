@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +35,7 @@ const __dirname = path.dirname(__filename);
       '  --port=<cổng>         Cổng Setup UI (mặc định 51789)',
       '  --project-dir=<đường> Thư mục project',
       '  --no-open             Không tự mở trình duyệt',
+      '  --allow-admin         (Windows) Cho chạy bằng quyền Administrator thay vì tự mở lại bằng quyền thường',
       '  -v, --version         In phiên bản rồi thoát',
       '  -h, --help            In trợ giúp này rồi thoát',
     ].join('\n'));
@@ -94,6 +95,65 @@ const LOGO = `
 console.log(LOGO);
 
 const args = process.argv.slice(2);
+
+/** True when this process runs elevated (High mandatory level): `whoami /groups` lists S-1-16-12288. */
+function windowsElevated() {
+  // Full path: with Git's usr/bin first on PATH, `whoami` is the GNU one and rejects /groups.
+  const whoami = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'whoami.exe');
+  try { return /S-1-16-12288/.test(execFileSync(whoami, ['/groups'], { encoding: 'utf8', windowsHide: true, timeout: 10000 })); } catch { return false; }
+}
+
+/**
+ * Start this same command again at the desktop user's normal level and report whether it started.
+ * explorer.exe opens a file with its OWN token, and the desktop explorer is not elevated, so a .cmd
+ * it opens is not either. The .cmd writes a marker first, so a relaunch that never ran (no desktop
+ * session, explorer itself elevated) is noticed and this process carries on instead of vanishing.
+ */
+async function relaunchUnelevated() {
+  const argv = [process.execPath, __filename, ...args];
+  // Anything cmd could misread is refused rather than escaped: stay, with the warning.
+  if (argv.some((a) => /["\r\n]/.test(a))) return false;
+  const stamp = `${process.pid}-${Date.now()}`;
+  const marker = path.join(os.tmpdir(), `openclaw-setup-unelevated-${stamp}.ok`);
+  const cmdFile = path.join(os.tmpdir(), `openclaw-setup-unelevated-${stamp}.cmd`);
+  const q = (a) => `"${String(a).replace(/%/g, '%%')}"`;
+  try {
+    fs.writeFileSync(cmdFile, [
+      '@echo off',
+      'chcp 65001 >nul',
+      'title OpenClaw Setup',
+      'set "OPENCLAW_SETUP_UNELEVATED=1"',
+      `cd /d ${q(process.cwd())}`,
+      `echo ok> ${q(marker)}`,
+      argv.map(q).join(' '),
+      '(goto) 2>nul & del "%~f0"',
+    ].join('\r\n') + '\r\n', 'utf8');
+    spawn('explorer.exe', [cmdFile], { detached: true, stdio: 'ignore' }).unref();
+  } catch {
+    return false;
+  }
+  for (let i = 0; i < 40 && !fs.existsSync(marker); i++) await new Promise((r) => setTimeout(r, 250));
+  const started = fs.existsSync(marker);
+  try { fs.rmSync(marker, { force: true }); } catch {}
+  if (!started) { try { fs.rmSync(cmdFile, { force: true }); } catch {} }
+  return started;
+}
+
+// Windows: Setup must not run elevated. Started from a "Run as administrator" terminal, Setup and
+// every process it launched - gateway, 9Router - ran elevated (C:\openclaw-setup, 22/10/2026):
+// "Dừng Bot" on the Desktop, a normal-user click, could not stop them, and the shortcuts Setup
+// wrote came out read-only for the owner. So relaunch at the user's normal level and leave.
+// `--allow-admin` keeps an elevated run on purpose.
+if (process.platform === 'win32' && !args.includes('--allow-admin') && windowsElevated()) {
+  if (process.env.OPENCLAW_SETUP_UNELEVATED !== '1' && (await relaunchUnelevated())) {
+    console.log('Setup đã được mở lại bằng quyền thường trong một cửa sổ mới (không chạy bằng quyền Administrator).');
+    console.log('Cửa sổ này đóng được.');
+    process.exit(0);
+  }
+  console.warn('⚠️  Setup đang chạy bằng quyền Administrator và không tự mở lại được bằng quyền thường.');
+  console.warn('   Bot sẽ chạy bằng quyền admin, nên "Dừng Bot" trên Desktop sẽ không tắt được nó.');
+  console.warn('   Nên đóng cửa sổ này và chạy lại lệnh trong cửa sổ thường (không chọn "Run as administrator").');
+}
 
 const noOpen = args.includes('--no-open');
 // Accept both `--flag=value` and `--flag value`. Only the `=` form used to be read, so a scheduled

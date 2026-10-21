@@ -4,6 +4,12 @@
 ## [Unreleased]
 ### 🔗 Every install and update path points at this repository
 
+- 🔧 **Setup no longer runs as Administrator.** Started from a "Run as administrator" terminal, Setup, the
+  gateway and 9Router all ran elevated: "Dừng Bot" on the Desktop (a normal-user click) could not stop the
+  bot, and the shortcuts Setup wrote were read-only for the owner (measured on a real install into
+  C:\openclaw-setup, 22/10/2026). Setup now relaunches itself at the user's normal level in a new window and
+  exits; if that is not possible it carries on with a clear warning. `--allow-admin` keeps it elevated.
+- 🔧 Shortcuts re-inherit the Desktop / Start Menu permissions, even when Setup runs elevated.
 - 🔧 **"Update" no longer installs the upstream npm build.** `create-openclaw-bot` on npm is the original
   author's build, yet the update button (npx and global npm installs), the relaunch after an update and
   "2 - MO GIAO DIEN" without a known source still fetched it - one click and every fix of this repository
