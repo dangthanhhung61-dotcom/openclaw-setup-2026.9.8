@@ -30,16 +30,16 @@ OpenClaw **2026.9.8** · Windows · macOS · Linux · MIT
 ## Install
 
 ```bash
-npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8 --project-dir=C:\bot
+npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8
 ```
 
-The dashboard opens at **http://127.0.0.1:51789**. Pick any project folder; without `--project-dir` it defaults to `C:\openclaw-setup` (Windows) or `~/openclaw-setup` (macOS, Linux).
+The dashboard opens at **http://127.0.0.1:51789**. You choose the project folder there when you click **Install** (suggested: `C:\openclaw-setup` on Windows, `~/openclaw-setup` on macOS and Linux).
 
 Or download the code and run it, no `npm install` needed:
 
 ```bash
 git clone https://github.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8.git
-node openclaw-setup-2026.9.8/dist/cli.js --project-dir=C:\bot
+node openclaw-setup-2026.9.8/dist/cli.js
 ```
 
 ## Steps in the dashboard
