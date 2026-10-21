@@ -1,5 +1,5 @@
 const $ = (sel) => document.querySelector(sel);
-const state = { tab: 'dashboard', system: null, install: null, files: [], catalog: { skills: [], plugins: [] }, logs: [], zaloLoginOpen: false, zaloLoginLines: [], zaloQrDataUrl: '', lang: localStorage.getItem('openclaw-lang') || 'vi', theme: localStorage.getItem('openclaw-theme') || 'dark', tz: localStorage.getItem('openclaw-tz') || 'Asia/Ho_Chi_Minh', navCollapsed: localStorage.getItem('openclaw-nav')==='1', os: null, mode: null, donateOpen: false, botModalOpen: false, botEditId: '', installModalOpen: false, fbPluginModalOpen: false, installTab: 'native', installDraft: null, pathModal: null, confirmModal: null, botChannel: 'telegram', botPane: 'list', activeBotId: '', selectedFile: '', botMessage: '', projectConnectMessage: '', pendingProjectDir: '', selectedProjectDir: '', featureFlags: {}, featureInstalled: {}, featureLoading: {}, featureLocked: {}, zaloBackend: '', zaloHealth: null, openDirs: {} };
+const state = { tab: 'dashboard', system: null, install: null, files: [], catalog: { skills: [], plugins: [] }, logs: [], zaloLoginOpen: false, zaloLoginLines: [], zaloQrDataUrl: '', lang: localStorage.getItem('openclaw-lang') || 'vi', theme: localStorage.getItem('openclaw-theme') || 'dark', tz: localStorage.getItem('openclaw-tz') || 'Asia/Ho_Chi_Minh', navCollapsed: localStorage.getItem('openclaw-nav')==='1', os: null, mode: null, botModalOpen: false, botEditId: '', installModalOpen: false, fbPluginModalOpen: false, installTab: 'native', installDraft: null, pathModal: null, confirmModal: null, botChannel: 'telegram', botPane: 'list', activeBotId: '', selectedFile: '', botMessage: '', projectConnectMessage: '', pendingProjectDir: '', selectedProjectDir: '', featureFlags: {}, featureInstalled: {}, featureLoading: {}, featureLocked: {}, zaloBackend: '', zaloHealth: null, openDirs: {} };
 const SVG_CDN = 'https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons';
 const OS_OPTIONS = [
   { id: 'win', title: 'Windows', subtitle: 'Auto-detected desktop', icon: `${SVG_CDN}/windows/default.svg`, badge: 'Desktop' },
@@ -122,57 +122,12 @@ function actionIcon(name) {
   }[name];
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 }
-function socialIcon(name) {
-  const d = {
-    facebook:'M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z',
-    telegram:'M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z',
-    zalo:'M4 6h16v10H8l-4 4V6z M9 10h6 M9 13h4',
-    github:'M9 19c-5 1-5-2-7-3m14 6v-3.9a3.4 3.4 0 0 0-.9-2.6c3-.3 6.1-1.5 6.1-6.7A5.2 5.2 0 0 0 20 5.2 4.8 4.8 0 0 0 19.9 2S18.7 1.7 16 3.5a13.4 13.4 0 0 0-7 0C6.3 1.7 5.1 2 5.1 2A4.8 4.8 0 0 0 5 5.2a5.2 5.2 0 0 0-1.4 3.6c0 5.2 3.1 6.4 6.1 6.7a3 3 0 0 0-.9 2.1V22'
-  }[name];
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
-}
-function sidebarExtras() {
-  const socials = [
-    ['facebook','https://www.facebook.com/holeminhtuan.it/'],
-    ['telegram','https://t.me/holeminhtuan_it'],
-    ['zalo','https://zalo.me/0962794917'],
-    ['github','https://github.com/tuanminhhole/']
-  ];
-  return `<div style="margin-top: auto; width: 100%;">
-    <hr style="border: 0; border-top: 1px solid var(--hair); margin: 16px 0 20px 0; opacity: 0.6;" />
-    <div class="sidebar-extra" style="margin-top: 0;">
-      <div class="side-info side-author" style="text-align: center; background: transparent; border: none; box-shadow: none; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
-        <p style="margin: 0 0 10px 0; font-weight: 600; color: var(--muted); font-size: 12.5px; display: inline-flex; align-items: center; gap: 4px;">Được làm ❤️ bởi <a href="https://zalo.me/0962794917" target="_blank" rel="noopener" style="color: var(--muted); text-decoration: none; font-weight: 700;">tuanminhole</a></p>
-        <div class="socials" style="justify-content: center; margin-top: 0; display: flex; gap: 8px; width: 100%;">
-          ${socials.map(([n,u])=>`<a href="${u}" target="_blank" rel="noopener" aria-label="${n}">${socialIcon(n)}</a>`).join('')}
-        </div>
-      </div>
-    </div>
-  </div>`;
-}
-function donateModal() {
-  if (!state.donateOpen) return '';
-  return `<div class="modal-backdrop" data-donate="close"><section class="donate-modal" role="dialog" aria-modal="true" aria-label="Donate" onclick="event.stopPropagation()">
-    <button class="modal-x" data-donate="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-    <div class="donate-head"><span aria-hidden="true">&#10084;</span><div><p>${t('\u1ee6ng h\u1ed9 OpenClaw', 'Support OpenClaw')}</p><h2>Donate</h2><small>${t('\u0110\u00f3ng g\u00f3p c\u1ee7a b\u1ea1n gi\u00fap duy tr\u00ec h\u1ea1 t\u1ea7ng, s\u1eeda l\u1ed7i v\u00e0 c\u1ea3i ti\u1ebfn OpenClaw m\u1ed7i ng\u00e0y.', 'Your support keeps infrastructure running, fixes bugs, and improves OpenClaw every day.')}</small></div></div>
-    <div class="donate-grid"><article><div class="qr-frame"><img src="/bvvbank.jpg" alt="BVBank transfer info"></div><b>BVBank</b></article><article><div class="qr-frame"><img src="/momo.jpg" alt="Momo transfer info"></div><b>Momo</b></article></div>
-  </section></div>`;
-}
 function fbPluginModal() {
   if (!state.fbPluginModalOpen) return '';
-  const socials = [
-    ['facebook','https://www.facebook.com/holeminhtuan.it/'],
-    ['telegram','https://t.me/holeminhtuan_it'],
-    ['zalo','https://zalo.me/0962794917'],
-    ['github','https://github.com/tuanminhhole/']
-  ];
   return `<div class="modal-backdrop confirm-backdrop" data-fbplugin="close">
     <section class="donate-modal confirm-modal" role="dialog" aria-modal="true" aria-label="fb-messenger plugin" onclick="event.stopPropagation()">
       <button class="modal-x" data-fbplugin="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <div class="donate-head"><span aria-hidden="true">🔌</span><div><p>${t('Cần plugin','Plugin required')}</p><h2>fb-messenger</h2><small>${t('Bot <b>Facebook Messenger</b> cần plugin <b>fb-messenger</b> (đã public trên ClawHub). Bấm <b>Tạo bot</b>, rồi mở <b>Bot → Plugins</b> và bấm <b>Cài</b> ở thẻ <b>openclaw-fb-messenger</b>.','A <b>Facebook Messenger</b> bot needs the <b>fb-messenger</b> plugin (now public on ClawHub). Click <b>Create bot</b>, then open <b>Bot → Plugins</b> and hit <b>Install</b> on the <b>openclaw-fb-messenger</b> card.')}</small></div></div>
-      <div class="socials" style="justify-content:center;display:flex;gap:10px;width:100%;margin:8px 0 4px;">
-        ${socials.map(([n,u])=>`<a href="${u}" target="_blank" rel="noopener" aria-label="${n}">${socialIcon(n)}</a>`).join('')}
-      </div>
       <div class="confirm-actions"><button class="primary" data-fbplugin="close" type="button">${t('Đã hiểu','Got it')}</button></div>
     </section>
   </div>`;
@@ -258,7 +213,7 @@ function ui(key) {
   const m = {
     setup:['C\u00e0i \u0111\u1eb7t','Setup'], bot:['Bot','Bot'], files:['T\u1ec7p','Files'], skills:['K\u1ef9 n\u0103ng','Skills'], logs:['Nh\u1eadt k\u00fd','Logs'],
     localSetup:['C\u00e0i \u0111\u1eb7t c\u1ee5c b\u1ed9','Local Setup'], ready:['S\u1eb5n s\u00e0ng','Ready'], installed:['\u0110\u00e3 c\u00e0i','Installed'],
-    light:['S\u00e1ng','Light'], dark:['T\u1ed1i','Dark'], donate:['\u1ee6ng h\u1ed9','Donate'], installer:['TR\u00ccNH C\u00c0I \u0110\u1eb6T WEB C\u1ee4C B\u1ed8','LOCAL WEB INSTALLER'],
+    light:['S\u00e1ng','Light'], dark:['T\u1ed1i','Dark'], installer:['TR\u00ccNH C\u00c0I \u0110\u1eb6T WEB C\u1ee4C B\u1ed8','LOCAL WEB INSTALLER'],
     osTitle:['Ch\u1ecdn h\u1ec7 \u0111i\u1ec1u h\u00e0nh','Choose operating system'], osDesc:['M\u1eb7c \u0111\u1ecbnh theo m\u00e1y \u0111\u00e3 nh\u1eadn di\u1ec7n','Default follows detected machine'],
     modeTitle:['Ch\u1ecdn ch\u1ebf \u0111\u1ed9 ch\u1ea1y','Choose runtime mode'], modeDesc:['Ch\u1ea1y th\u1eb3ng tr\u00ean m\u00e1y (native). Docker \u0111\u00e3 ng\u1eebng cho project m\u1edbi.','Runs directly on this machine (native). Docker is retired for new projects.'],
     install:['C\u00e0i OpenClaw','Install OpenClaw'], installSub:['T\u1ea1o project \u2192 c\u00e0i runtime m\u1edbi nh\u1ea5t \u2192 kh\u1edfi \u0111\u1ed9ng bot','Generate project \u2192 install latest runtime \u2192 start bot'],
@@ -607,7 +562,6 @@ function render() {
       <aside class="sidebar"><button class="nav-collapse-btn" data-nav-toggle type="button" aria-label="Toggle sidebar" title="Thu gọn/Mở rộng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
         <div class="brand"><img src="/openclaw-logo.svg" onerror="this.src='/openclaw-logo.png'" alt="OpenClaw"/><div style="display: flex; flex-direction: column; align-items: center; text-align: center;"><b>OpenClaw Setup</b><span id="sidebar-version" style="display: block; width: 100%; text-align: center; font-size: 13.5px; font-weight: 600; margin-top: 6px; color: var(--muted);">v${state.system?.versions?.setup || '...'}</span></div></div>
         <nav class="sidebar-nav">${tabs.map(([id,label]) => `<button class="nav ${state.tab===id?'active':''}" data-tab="${id}">${icon(id)}<span>${label}</span></button>`).join('')}</nav>
-        ${sidebarExtras()}
       </aside>
       <main id="app-main-content">
         <header class="topbar">
@@ -622,14 +576,7 @@ function render() {
         <header class="top"><div><p class="eyebrow">${ui('installer')}</p><h1 id="app-page-title">${title()}</h1></div></header>
         <section class="panel">${content()}</section>
         <footer class="app-footer" style="margin-top: 40px; padding: 24px 0 10px 0; border-top: 1px solid var(--hair); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-          <p style="margin: 0; font-size: 13px; color: var(--muted);">Copyright © 2026 Được làm ❤️ bởi <a href="https://zalo.me/0962794917" target="_blank" rel="noopener" style="color: var(--muted); text-decoration: none; font-weight: 600;">tuanminhole</a>. Phát hành theo MIT.</p>
-          <p style="margin: 0; font-size: 13px; color: var(--body); display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;">
-            <span>Nếu công cụ này giúp ích cho bạn, hãy mời mình một ly cà phê nhé! ❤️</span>
-            <button class="top-donate" data-donate="open" style="padding: 6px 12px; font-size: 11.5px; border-radius: 999px; display: inline-flex; align-items: center; border-color: var(--ok); background: rgba(46, 230, 166, 0.08); color: var(--ok);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px; height:14px; margin-right: 4px; filter: drop-shadow(0 0 6px rgba(46, 230, 166, 0.45));"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>
-              Mời Cafe
-            </button>
-          </p>
+          <p style="margin: 0; font-size: 13px; color: var(--muted);">${t('OpenClaw Setup · Phát hành theo giấy phép MIT.','OpenClaw Setup · Released under the MIT License.')}</p>
         </footer>
       </main>
       <nav class="bottom bottom-nav">${tabs.map(([id,label]) => `<button class="nav ${state.tab===id?'active':''}" data-tab="${id}"><span class="nav-ico">${icon(id)}</span><small>${label}</small></button>`).join('')}</nav>
@@ -664,9 +611,9 @@ function render() {
 
   const modalContainer = $('#modal-container');
   if (modalContainer) {
-    const modalSig = JSON.stringify({ d: state.donateOpen, bm: state.botModalOpen, be: state.botEditId, msg: state.botMessage, bc: state.botChannel, cm: state.confirmModal, pm: state.pathModal, zl: state.zaloLoginOpen, zq: state.zaloQrDataUrl, zll: state.zaloLoginLines, im: state.installModalOpen, fp: state.fbPluginModalOpen, it: state.installTab, idr: state.installDraft });
+    const modalSig = JSON.stringify({ bm: state.botModalOpen, be: state.botEditId, msg: state.botMessage, bc: state.botChannel, cm: state.confirmModal, pm: state.pathModal, zl: state.zaloLoginOpen, zq: state.zaloQrDataUrl, zll: state.zaloLoginLines, im: state.installModalOpen, fp: state.fbPluginModalOpen, it: state.installTab, idr: state.installDraft });
     if (modalContainer.dataset.sig !== modalSig) {
-      modalContainer.innerHTML = `${donateModal()}${botCreateModal()}${confirmModal()}${pathModal()}${zaloLoginModal()}${installModal()}${fbPluginModal()}`;
+      modalContainer.innerHTML = `${botCreateModal()}${confirmModal()}${pathModal()}${zaloLoginModal()}${installModal()}${fbPluginModal()}`;
       modalContainer.dataset.sig = modalSig;
     }
   }
@@ -1352,7 +1299,6 @@ function wireTab() {
     }
     showToast(t('Đã copy','Copied'), text, 'success');
   });
-  document.querySelectorAll('[data-donate]').forEach(el => el.onclick = () => { state.donateOpen = el.dataset.donate === 'open'; render(); });
   document.querySelectorAll('[data-fbplugin]').forEach(el => el.onclick = () => { state.fbPluginModalOpen = false; render(); });
   document.querySelectorAll('[data-bot-modal]').forEach(el => el.onclick = () => { state.botModalOpen = el.dataset.botModal === 'open'; if (el.dataset.botModal === 'open') state.botEditId = ''; state.botMessage = ''; render(); });
   document.querySelectorAll('[data-edit-bot]').forEach(btn => btn.onclick = (ev) => { ev.stopPropagation(); state.botEditId = btn.dataset.editBot; state.botChannel = (state.install?.bots || []).find((b) => b.id === state.botEditId)?.channel || state.botChannel; state.botModalOpen = true; state.botMessage = ''; render(); });

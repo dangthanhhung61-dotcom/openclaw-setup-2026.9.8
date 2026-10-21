@@ -587,7 +587,7 @@ async function fetchLatestSetupVersionBg() {
     // Distribution is GitHub (not npm) - read the version straight from main so the
     // "latest" reflects `npx github:…`, not the stale last-published npm release.
     const resp = await fetch(
-      'https://raw.githubusercontent.com/tuanminhhole/openclaw-setup/main/package.json',
+      'https://raw.githubusercontent.com/dangthanhhung61-dotcom/openclaw-setup-2026.9.8/main/package.json',
       { signal: AbortSignal.timeout(4000), headers: { 'Cache-Control': 'no-cache' } },
     );
     if (resp.ok) {

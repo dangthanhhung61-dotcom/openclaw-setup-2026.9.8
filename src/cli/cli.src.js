@@ -89,7 +89,6 @@ function hasBundledServer() {
 const LOGO = `
 ╭────────────────────────────────────────╮
 │          🦞 OpenClaw Setup 🦞          │
-│             by tuanminhhole            │
 ╰────────────────────────────────────────╯
 `;
 console.log(LOGO);

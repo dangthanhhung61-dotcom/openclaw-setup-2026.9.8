@@ -1,6 +1,15 @@
 # Changelog (English)
 
 
+## [Unreleased]
+### 🏷️ Branding
+
+- 🏷️ **Branding is just "OpenClaw Setup".** The author credit and social links in the sidebar and footer,
+  the "Mời Cafe" button with its bank/MoMo QR codes, the CLI byline and the `author` field in
+  package.json are gone. The version check reads this repository. The README is rewritten for this
+  repository, with new screenshots. The LICENSE copyright line stays, as the MIT license requires.
+
+
 ## [5.18.4] - 2026-10-17
 ### 🔧 Windows native installs: one gateway, working memory rules, one tidy shortcut
 
@@ -760,7 +769,7 @@ All three migrations run from the shared config-migration script, so Docker (ent
 ### 🚀 New: run straight from GitHub
 - Launch the wizard with one command, no npm publish required (works on macOS, Linux & Windows; Node.js ≥ 22):
   ```bash
-  npx github:tuanminhhole/openclaw-setup
+  npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8
   ```
   The CLI detects its bundled server (`dist/`) and runs the local dashboard directly.
 

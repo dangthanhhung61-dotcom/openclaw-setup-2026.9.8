@@ -197,7 +197,7 @@ if(touched){console.log('[patch-9router] Applied Codex compatibility patch.');}e
   // Idempotent config upgrade replayed on every runtime start. Docker embeds it in the container
   // entrypoint; the native runtime (local-server.js) runs it via `node -e` before every gateway
   // (re)start - one script, both deploy modes, so native bots stop missing config fixes like the
-  // smart-route contextWindow 200000/131072 → 1048576 (Kent chot 01/09/2026; chi dung den DUNG
+  // smart-route contextWindow 200000/131072 → 1048576 (chot 01/09/2026; chi dung den DUNG
   // hai gia tri setup tung ghi, custom tuning giu nguyen). Full rationale sits with the
   // entrypoint block inside buildDockerArtifacts.
   // ⚠️ toolResultMaxChars: openclaw ≥2026.8 BO key nay khoi schema va TU CHOI BOOT khi thay no.

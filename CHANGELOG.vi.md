@@ -1,6 +1,15 @@
 # Changelog (Tiếng Việt)
 
 
+## [Chưa phát hành]
+### 🏷️ Thương hiệu
+
+- 🏷️ **Chỉ còn "OpenClaw Setup".** Bỏ dòng tác giả và các liên kết mạng xã hội ở thanh bên và chân trang,
+  nút "Mời Cafe" cùng mã QR ngân hàng/MoMo, dòng tên dưới logo ở dòng lệnh và trường `author` trong
+  package.json. Kiểm tra phiên bản mới đọc từ repo này. README viết lại cho repo này, kèm ảnh chụp mới.
+  Dòng bản quyền trong LICENSE được giữ vì giấy phép MIT bắt buộc.
+
+
 ## [5.18.4] - 2026-10-17
 ### 🔧 Bot cài trực tiếp trên Windows: một gateway, quy tắc nhớ đúng chỗ, một biểu tượng gọn
 
@@ -513,7 +522,7 @@ Cả ba migration nằm trong script dùng chung, nên Docker (entrypoint, mỗi
 
 ### ⚙️ Thay đổi: cửa sổ ngữ cảnh smart-route 131072 → 1.048.576
 
-- Model `smart-route` của 9router nay khai cửa sổ 1M (Kent chốt 01/09/2026); project hiện hữu được nâng ở lần container start / native restart kế tiếp - chỉ đúng hai giá trị setup từng ghi (200000/131072) bị nâng, tinh chỉnh tay giữ nguyên. Đánh đổi: combo nào còn route sang upstream 128k thì phiên dài vẫn có thể tràn ở đó - sửa combo, đừng hạ window nữa.
+- Model `smart-route` của 9router nay khai cửa sổ 1M (chốt 01/09/2026); project hiện hữu được nâng ở lần container start / native restart kế tiếp - chỉ đúng hai giá trị setup từng ghi (200000/131072) bị nâng, tinh chỉnh tay giữ nguyên. Đánh đổi: combo nào còn route sang upstream 128k thì phiên dài vẫn có thể tràn ở đó - sửa combo, đừng hạ window nữa.
 
 
 ## [5.16.0] - 2026-08-03
@@ -740,7 +749,7 @@ Cả ba migration nằm trong script dùng chung, nên Docker (entrypoint, mỗi
 ### 🚀 Mới: chạy thẳng từ GitHub
 - Khởi động wizard bằng một lệnh, không cần publish lên npm (chạy trên macOS, Linux & Windows; Node.js ≥ 22):
   ```bash
-  npx github:tuanminhhole/openclaw-setup
+  npx github:dangthanhhung61-dotcom/openclaw-setup-2026.9.8
   ```
   CLI tự nhận biết server đi kèm (`dist/`) và chạy dashboard local trực tiếp.
 
