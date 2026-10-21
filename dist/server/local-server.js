@@ -5246,6 +5246,10 @@ async function installWindowsShortcuts(projectDir, dirs = {}) {
     '    if (Test-Path -LiteralPath $spec.icon) { $k.SetIconLocation($spec.icon, 0) }',
     '    $k.Save()',
     '    Move-Item -LiteralPath $tmp -Destination $final -Force',
+    // A move keeps the ProgramData ACL; created by an elevated Setup that is SYSTEM/Administrators
+    // full + Users read-only, so the owner could not change their own shortcut. Re-inherit from
+    // the destination folder (Desktop / Start Menu) instead.
+    '    & icacls.exe $final /reset /Q | Out-Null',
     '  } finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force } }',
     '}',
     "$desktop = if ($spec.desktopDir) { $spec.desktopDir } else { [Environment]::GetFolderPath('Desktop') }",

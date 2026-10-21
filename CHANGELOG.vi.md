@@ -4,6 +4,12 @@
 ## [Chưa phát hành]
 ### 🔗 Mọi đường cài và cập nhật đều trỏ về repo này
 
+- 🔧 **Setup không còn chạy bằng quyền Administrator.** Mở lệnh cài trong cửa sổ "Run as administrator"
+  thì Setup, gateway và 9Router đều chạy quyền admin: "Dừng Bot" trên Desktop (bấm bằng quyền thường)
+  không tắt được bot, và lối tắt Setup tạo ra bị khoá chỉ-đọc với chính chủ máy (đo khi cài thật vào
+  C:\openclaw-setup, 22/10/2026). Nay Setup tự mở lại chính nó bằng quyền thường trong một cửa sổ mới rồi
+  thoát; không mở lại được thì chạy tiếp và cảnh báo rõ. Cố ý muốn chạy quyền admin thì thêm `--allow-admin`.
+- 🔧 Lối tắt nhận lại quyền của thư mục Desktop / Start Menu, kể cả khi Setup chạy quyền admin.
 - 🔧 **Nút "Cập nhật" không còn cài bản gốc từ npm.** `create-openclaw-bot` trên npm là bản của tác giả gốc,
   nhưng nút cập nhật (cả bản cài bằng npx lẫn npm toàn cục), lệnh mở lại Setup sau khi cập nhật và tệp
   "2 - MO GIAO DIEN" khi không rõ nguồn vẫn tải nó - bấm cập nhật là mất hết các bản sửa của repo này.
