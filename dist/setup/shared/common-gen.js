@@ -276,7 +276,7 @@ If setup reported a plugin install error, run this after the bot is running:
         {
           id: 'smart-route',
           name: 'Smart Proxy (Auto Route)',
-          // 1M (Kent chot 01/09/2026) - dao lai quyet dinh 131072 cua 5.16.0. Boi canh de doc
+          // 1M (chot 01/09/2026) - dao lai quyet dinh 131072 cua 5.16.0. Boi canh de doc
           // lai sau: 131072 sinh ra vi smart-route fan-out sang upstream free ma model nho nhat
           // trong pool tran ~128k; khai 200k lam phien day den muc chinh loi goi compaction cung
           // overflow ("auto-compaction could not recover" cho den /new). Gio pool upstream da la
@@ -284,7 +284,7 @@ If setup reported a plugin install error, run this after the bot is running:
           // mot combo van con model 128k thi phien vuot 128k se chet dung nhu hoi 5.15.x - do la
           // van de cua combo, sua bang cach chon model, khong sua bang cach ha window o day nua.
           contextWindow: 1048576,
-          // Ngan sach OpenClaw thuc su dung (Kent chot 08/10/2026). Window 1M ma khong co cap nay thi
+          // Ngan sach OpenClaw thuc su dung (chot 08/10/2026). Window 1M ma khong co cap nay thi
           // phien khong bao gio tu nen - moi cau hoi gui lai toan bo lich su (vu win_kha 6 trieu token/ngay).
           contextTokens: 250000,
           maxTokens: 8192,

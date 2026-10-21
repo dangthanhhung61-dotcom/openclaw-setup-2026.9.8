@@ -25,7 +25,6 @@
     "telegram",
     "ai"
   ],
-  "author": "tuanminhhole",
   "license": "MIT",
   "dependencies": {
     "@inquirer/prompts": "^4.3.1",
